@@ -13,7 +13,7 @@ A CLI tool designed to streamline your GitHub workflow by automating Pull Reques
 
 ### For Users (if published on PyPI):
 
-You can install AutoPR using pip:
+You can install AutoPR using pip (once published):
 
 ```sh
 pip install autopr_cli
@@ -23,15 +23,15 @@ pip install autopr_cli
 
 1.  Clone the repository:
     ```sh
-    git clone <your-repository-url>
-    cd autopr
+    git clone <your-repository-url> # Replace <your-repository-url> with the actual URL
+    cd autopr-cli # Or your repository's directory name
     ```
 2.  Create and activate a virtual environment (recommended):
     ```sh
-    python -m venv venv
+    python3 -m venv venv
     source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
     ```
-3.  Install dependencies:
+3.  Install dependencies (including development tools):
     ```sh
     pip install -r requirements.txt
     ```
@@ -53,7 +53,9 @@ Make sure you are in the root directory of your Git repository.
     python run_cli.py create --title "Your Amazing PR Title"
     ```
 
-## Running Tests
+## Development
+
+### Running Tests
 
 To run the automated tests, use Make:
 
@@ -61,16 +63,46 @@ To run the automated tests, use Make:
 make test
 ```
 
-## To publish a new version (if applicable):
+### Formatting Code
 
-After changes are done, run the following:
+To format the code using Black:
 
-1.  Build the package:
+```sh
+make format
+```
+
+### Publishing a New Version (for Maintainers)
+
+This project uses `Makefile` targets to streamline the release process. Ensure you have `twine` configured with your PyPI credentials (API tokens are recommended) and have installed development dependencies via `pip install -r requirements.txt`.
+
+1.  **Update Version:** Increment the `__version__` string in `autopr/__init__.py`.
+
+2.  **Build the Package:**
     ```sh
-    python setup.py sdist bdist_wheel
+    make build
     ```
+    This cleans old builds and creates new source distribution and wheel files in the `dist/` directory.
 
-2.  Upload:
+3.  **Test Publishing (Highly Recommended):** Publish to TestPyPI to ensure everything works correctly before a real release.
     ```sh
-    twine upload dist/*
+    make publish-test
+    ```
+    You will be prompted for confirmation. Check the package on [test.pypi.org](https://test.pypi.org).
+
+4.  **Publish to PyPI (Real):**
+    ```sh
+    make publish
+    ```
+    This will upload the package to the official PyPI. You will be prompted for confirmation.
+
+5.  **Full Release (Publish to PyPI & Tag):** For a complete release including Git tagging:
+    ```sh
+    make release
+    ```
+    This performs `make publish` and then creates a Git tag for the new version (e.g., `v0.2.5`).
+    After running this, you **must** push the tag to the remote repository:
+    ```sh
+    git push origin vX.Y.Z  # Replace X.Y.Z with the version number
+    # OR push all tags if you have multiple new tags
+    git push --tags
     ```
