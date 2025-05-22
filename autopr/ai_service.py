@@ -1,6 +1,7 @@
 # autopr/ai_service.py
 import os
 import openai
+import re # Import re for regex operations
 
 # Initialize OpenAI client. API key is read from environment variable OPENAI_API_KEY by default.
 # It's good practice to handle potential missing key if you want to provide a graceful fallback or error.
@@ -29,7 +30,7 @@ def get_commit_message_suggestion(diff: str) -> str:
             f"for the following git diff (read carefully):\n\n```diff\n{diff}\n```\n\n"
             f"The commit message should follow standard conventions, such as starting with a type "
             f"(e.g., feat:, fix:, docs:, style:, refactor:, test:, chore:). You can ignore version updates if they are not relevant to the changes. "
-            f"Do not include any other text or symbols or formatting in the commit message, just the plain text message and nothing else."
+            f"Do not include any other text or symbols or formatting (like '```', '```diff', etc.) in the commit message, just the plain text message and nothing else."
         )
 
         response = client.chat.completions.create(
@@ -42,7 +43,37 @@ def get_commit_message_suggestion(diff: str) -> str:
             temperature=0.7 # creativity vs. determinism
         )
         suggestion = response.choices[0].message.content.strip()
-        return suggestion
+        # Regex to remove triple backticks (and optional language specifier) or single backticks
+        # that surround the entire string. Also handles optional leading/trailing whitespace around them.
+        # Pattern: ^\s* (?: (?:```(?:\w+)?\n(.*?)```) | (?:`(.*?)`) ) \s* $
+        # This was getting too complex, let's simplify the approach for now.
+
+        # Iteratively strip common markdown code block markers
+        # Order matters: longer sequences first
+        cleaned_suggestion = suggestion
+        # Case 1: ```lang\nCODE\n```
+        match = re.match(r"^\s*```[a-zA-Z]*\n(.*?)\n```\s*$", cleaned_suggestion, re.DOTALL)
+        if match:
+            cleaned_suggestion = match.group(1).strip()
+        else:
+            # Case 2: ```CODE``` (no lang, no newlines inside)
+            match = re.match(r"^\s*```(.*?)```\s*$", cleaned_suggestion, re.DOTALL)
+            if match:
+                cleaned_suggestion = match.group(1).strip()
+        
+        # Case 3: `CODE` (single backticks)
+        # This should only apply if triple backticks didn't match, 
+        # or to clean up remnants if the AI puts single inside triple for some reason.
+        # However, to avoid stripping intended inline backticks, only strip if they are the *very* start and end
+        # of what's left.
+        if cleaned_suggestion.startswith('`') and cleaned_suggestion.endswith('`'):
+             # Check if these are the *only* backticks or if they genuinely surround the whole content
+            temp_stripped = cleaned_suggestion[1:-1]
+            if '`' not in temp_stripped: # If no more backticks inside, it was a simple `code`
+                cleaned_suggestion = temp_stripped.strip()
+            # else: it might be `code` with `inner` backticks, which is complex, leave as is for now.
+
+        return cleaned_suggestion
     except openai.APIError as e:
         print(f"OpenAI API Error: {e}")
         return "[Error communicating with OpenAI API]"
