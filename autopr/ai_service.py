@@ -25,10 +25,10 @@ def get_commit_message_suggestion(diff: str) -> str:
 
     try:
         prompt_message = (
-            f"Generate a sthraightforward, conventional commit message (max 72 chars for the subject line) that best reflects all the changes"
+            f"Generate a sthraightforward, conventional one-line commit message (max 72 chars for the subject line) that best reflects a resume of all the changes"
             f"for the following git diff (read carefully):\n\n```diff\n{diff}\n```\n\n"
             f"The commit message should follow standard conventions, such as starting with a type "
-            f"(e.g., feat, fix, docs, style, refactor, test, chore) and a short description. You can ignore version updates if they are not relevant to the changes."
+            f"(e.g., feat:, fix:, docs:, style:, refactor:, test:, chore:). You can ignore version updates if they are not relevant to the changes."
         )
 
         response = client.chat.completions.create(
