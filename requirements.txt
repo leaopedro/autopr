@@ -1,0 +1,10 @@
+# Future runtime dependencies will be listed here.
+# e.g., openai==0.28.0
+
+# For development (linters, formatters, test runners if not using system Python's unittest):
+# flake8
+# black
+# ruff
+black # Added Black for code formatting
+build # For building packages
+twine # For uploading packages to PyPI 

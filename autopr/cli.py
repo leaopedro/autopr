@@ -1,12 +1,8 @@
 import argparse
 
-# subprocess is now in github_service.py
-
-from autopr.git_utils import get_repo_from_git_config
-from autopr.github_service import create_pr, list_issues
-
-
-# create_pr and list_issues functions have been moved to autopr/github_service.py
+# Functions imported from other modules within the autopr package
+from .git_utils import get_repo_from_git_config
+from .github_service import create_pr, list_issues
 
 
 def main():
@@ -44,5 +40,6 @@ def main():
         list_issues(show_all_issues=args.all)
 
 
-if __name__ == "__main__":
-    main()
+# Note: The if __name__ == '__main__': block is typically not included
+# in a module file that's meant to be imported. The entry point
+# script (run_cli.py) will handle that.
