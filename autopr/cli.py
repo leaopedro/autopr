@@ -36,11 +36,6 @@ def main():
 
     args = parser.parse_args()
 
-    # Commands that don't need repo detection first (or handle it themselves)
-    if args.command == "workon":
-        start_work_on_issue(args.issue_number)
-        return
-
     # For other commands, detect repository first
     try:
         repo = get_repo_from_git_config()
@@ -51,6 +46,8 @@ def main():
 
     if args.command == "create":
         create_pr(args.title)
+    elif args.command == "workon":
+        start_work_on_issue(args.issue_number)
     elif args.command == "ls":
         list_issues(show_all_issues=args.all)
 
