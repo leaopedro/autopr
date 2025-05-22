@@ -23,8 +23,8 @@ pip install autopr_cli
 
 1.  Clone the repository:
     ```sh
-    git clone <your-repository-url> # Replace <your-repository-url> with the actual URL
-    cd autopr-cli # Or your repository's directory name
+    git clone https://github.com/leaopedro/autopr.git
+    cd autopr
     ```
 2.  Create and activate a virtual environment (recommended):
     ```sh
@@ -56,6 +56,12 @@ Make sure you are in the root directory of your Git repository.
     # For developers: python -m autopr.cli workon <issue_number>
     ```
     (See full guide below)
+*   **Generate AI-assisted commit message and commit:**
+    ```sh
+    autopr commit
+    # For developers: python -m autopr.cli commit
+    ```
+    Requires `OPENAI_API_KEY` environment variable. (See full guide below)
 *   **Create a new PR:**
     ```sh
     autopr create --title "Your Amazing PR Title"
@@ -99,6 +105,49 @@ This might:
 *   Save `42` into `.git/.autopr_current_issue`.
 
 You are then ready to start coding on the new branch with the issue context set up for future `autopr` commands.
+
+### Generating an AI-assisted Commit Message (`autopr commit`)
+
+The `commit` command helps you generate a commit message using AI based on your staged changes, and then optionally commit those changes.
+
+**Prerequisites:**
+
+*   You must have changes staged for commit (`git add ...`).
+*   You need to set the `OPENAI_API_KEY` environment variable with your valid OpenAI API key.
+    ```sh
+    export OPENAI_API_KEY='your_api_key_here' 
+    ```
+    (Add this to your shell configuration file like `.zshrc` or `.bashrc` for persistence).
+
+**Command:**
+
+```sh
+autopr commit
+# For developers: python -m autopr.cli commit
+```
+
+**What it does:**
+
+1.  **Checks for Staged Changes:** It first runs `git diff --staged` to get your staged modifications. If there are no staged changes, it will inform you.
+2.  **Sends Diff to AI:** The staged diff is sent to the OpenAI API (currently using `gpt-3.5-turbo`).
+3.  **Displays AI Suggestion:** The AI-generated commit message suggestion is printed to your console.
+4.  **User Confirmation:** You will be asked if you want to commit with the suggested message (`y/n`).
+5.  **Commits Changes (if confirmed):**
+    *   If you enter `y` (yes), `autopr` will execute `git commit -m "suggested_message"` to commit your staged changes with the AI's suggestion.
+    *   If you enter `n` (no) or any other input, the commit will be aborted, and you will be advised to commit manually using `git`.
+6.  **Handles Errors:** If there's an issue getting the AI suggestion (e.g., API key problem, network error) or if the `git commit` command fails, appropriate error messages will be displayed.
+
+**Example:**
+
+After staging some changes to `my_feature.py`:
+
+```sh
+git add my_feature.py
+autopr commit
+# For developers: python -m autopr.cli commit
+```
+
+If the AI service returns an error, or if you choose not to use the suggestion, you will be prompted to commit manually.
 
 ## Development
 
