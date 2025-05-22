@@ -2,89 +2,62 @@ import unittest
 import sys
 from unittest.mock import patch, MagicMock
 
-# Import the main script, assuming it can be run and its main() function can be called.
-# This might need adjustment depending on how run_cli.py is structured.
-import run_cli
-
+from autopr.cli import main as autopr_main # Import main directly
 
 class TestMainCLI(unittest.TestCase):
 
-    @patch("sys.argv")
-    @patch("run_cli.get_repo_from_git_config")
-    @patch("run_cli.list_issues")
-    def test_ls_command_calls_list_issues(
-        self, mock_list_issues, mock_get_repo, mock_argv
-    ):
-        # Simulate command line arguments: python run_cli.py ls
-        mock_argv.__getitem__.side_effect = lambda x: ["run_cli.py", "ls"][x]
-        mock_argv.__len__.return_value = 2
+    @patch('autopr.cli.list_issues')
+    @patch('autopr.cli.get_repo_from_git_config')
+    def test_ls_command_calls_list_issues(self, mock_get_repo, mock_list_issues):
+        with patch.object(sys, 'argv', ['cli.py', 'ls']): # Script name in argv[0] is conventional
+            mock_get_repo.return_value = "owner/repo"
+            autopr_main()
+            mock_get_repo.assert_called_once()
+            mock_list_issues.assert_called_once_with(show_all_issues=False)
 
-        mock_get_repo.return_value = "owner/repo"  # Simulate successful repo detection
+    @patch('autopr.cli.list_issues')
+    @patch('autopr.cli.get_repo_from_git_config')
+    def test_ls_command_all_calls_list_issues_all(self, mock_get_repo, mock_list_issues):
+        with patch.object(sys, 'argv', ['cli.py', 'ls', '-a']):
+            mock_get_repo.return_value = "owner/repo"
+            autopr_main()
+            mock_get_repo.assert_called_once()
+            mock_list_issues.assert_called_once_with(show_all_issues=True)
 
-        run_cli.main()
-
-        mock_get_repo.assert_called_once()
-        mock_list_issues.assert_called_once_with(show_all_issues=False)
-
-    @patch("sys.argv")
-    @patch("run_cli.get_repo_from_git_config")
-    @patch("run_cli.list_issues")
-    def test_ls_command_all_calls_list_issues_all(
-        self, mock_list_issues, mock_get_repo, mock_argv
-    ):
-        # Simulate: python run_cli.py ls -a
-        mock_argv.__getitem__.side_effect = lambda x: ["run_cli.py", "ls", "-a"][x]
-        mock_argv.__len__.return_value = 3
-
-        mock_get_repo.return_value = "owner/repo"
-
-        run_cli.main()
-
-        mock_get_repo.assert_called_once()
-        mock_list_issues.assert_called_once_with(show_all_issues=True)
-
-    @patch("sys.argv")
-    @patch("run_cli.get_repo_from_git_config")
-    @patch("run_cli.create_pr")
-    def test_create_command_calls_create_pr(
-        self, mock_create_pr, mock_get_repo, mock_argv
-    ):
-        # Simulate: python run_cli.py create --title "Test PR"
+    @patch('autopr.cli.create_pr')
+    @patch('autopr.cli.get_repo_from_git_config')
+    def test_create_command_calls_create_pr(self, mock_get_repo, mock_create_pr):
         test_title = "Test PR"
-        mock_argv.__getitem__.side_effect = lambda x: [
-            "run_cli.py",
-            "create",
-            "--title",
-            test_title,
-        ][x]
-        mock_argv.__len__.return_value = 4
+        with patch.object(sys, 'argv', ['cli.py', 'create', '--title', test_title]):
+            mock_get_repo.return_value = "owner/repo"
+            autopr_main()
+            mock_get_repo.assert_called_once()
+            mock_create_pr.assert_called_once_with(test_title)
 
-        mock_get_repo.return_value = "owner/repo"
+    @patch('builtins.print') 
+    @patch('autopr.cli.get_repo_from_git_config')
+    def test_repo_detection_failure(self, mock_get_repo, mock_print):
+        with patch.object(sys, 'argv', ['cli.py', 'ls']):
+            mock_get_repo.side_effect = FileNotFoundError("Mocked .git/config not found")
+            autopr_main()
+            mock_get_repo.assert_called_once()
+            mock_print.assert_any_call("Error detecting repository: Mocked .git/config not found")
 
-        run_cli.main()
+    @patch('autopr.cli.start_work_on_issue') 
+    def test_workon_command_calls_start_work_on_issue(self, mock_start_work_on_issue):
+        issue_number = 789
+        with patch.object(sys, 'argv', ['cli.py', 'workon', str(issue_number)]):
+            autopr_main()
+            mock_start_work_on_issue.assert_called_once_with(issue_number)
 
-        mock_get_repo.assert_called_once()
-        mock_create_pr.assert_called_once_with(test_title)
-
-    @patch("sys.argv")
-    @patch("run_cli.get_repo_from_git_config")
-    @patch("builtins.print")  # To capture print output for errors
-    def test_repo_detection_failure(self, mock_print, mock_get_repo, mock_argv):
-        # Simulate: python run_cli.py ls
-        mock_argv.__getitem__.side_effect = lambda x: ["run_cli.py", "ls"][x]
-        mock_argv.__len__.return_value = 2
-
-        mock_get_repo.side_effect = FileNotFoundError("Mocked .git/config not found")
-
-        run_cli.main()
-
-        mock_get_repo.assert_called_once()
-        mock_print.assert_any_call(
-            "Error detecting repository: Mocked .git/config not found"
-        )
+    @patch('builtins.print') 
+    def test_workon_command_invalid_issue_number(self, mock_print):
+        with patch.object(sys, 'argv', ['cli.py', 'workon', 'not_a_number']):
+            with self.assertRaises(SystemExit):
+                autopr_main()
 
 
 # Placeholder for more CLI tests
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()
