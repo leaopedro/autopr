@@ -19,11 +19,10 @@ def get_version(rel_path):
 setup(
     name="autopr_cli",
     version=get_version("autopr/__init__.py"),
-    py_modules=["run_cli"],
     packages=find_packages(),
     entry_points={
         "console_scripts": [
-            "autopr=run_cli:main",
+            "autopr=autopr.cli:main",
         ],
     },
     install_requires=[],
