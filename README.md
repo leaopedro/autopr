@@ -43,23 +43,23 @@ Make sure you are in the root directory of your Git repository.
 *   **List open issues:**
     ```sh
     autopr ls
-    # For developers: python run_cli.py ls
+    # For developers (before or without install): python -m autopr.cli ls
     ```
 *   **List all issues (open and closed):**
     ```sh
     autopr ls -a
-    # For developers: python run_cli.py ls -a
+    # For developers (before or without install): python -m autopr.cli ls -a
     ```
 *   **Start working on an issue:**
     ```sh
     autopr workon <issue_number>
-    # For developers: python run_cli.py workon <issue_number>
+    # For developers (before or without install): python -m autopr.cli workon <issue_number>
     ```
     (See full guide below)
 *   **Create a new PR:**
     ```sh
     autopr create --title "Your Amazing PR Title"
-    # For developers: python run_cli.py create --title "Your Amazing PR Title"
+    # For developers (before or without install): python -m autopr.cli create --title "Your Amazing PR Title"
     ```
 
 ### Starting Work on an Issue (`autopr workon`)
@@ -70,7 +70,7 @@ The `workon` command helps you kickstart development on a specific GitHub issue.
 
 ```sh
 autopr workon <issue_number>
-# For developers: python run_cli.py workon <issue_number>
+# For developers (before or without install): python -m autopr.cli workon <issue_number>
 ```
 
 Replace `<issue_number>` with the actual number of the GitHub issue you want to work on.
@@ -89,7 +89,7 @@ If you want to start working on issue #42 which has the title "Fix login button 
 
 ```sh
 autopr workon 42
-# For developers: python run_cli.py workon 42
+# For developers (before or without install): python -m autopr.cli workon 42
 ```
 
 This might:
