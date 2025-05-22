@@ -25,20 +25,20 @@ def get_commit_message_suggestion(diff: str) -> str:
 
     try:
         prompt_message = (
-            f"Generate a concise, conventional commit message (max 72 chars for the subject line) "
-            f"for the following git diff:\n\n```diff\n{diff}\n```\n\n"
+            f"Generate a sthraightforward, conventional commit message (max 72 chars for the subject line) that best reflects all the changes"
+            f"for the following git diff (read carefully):\n\n```diff\n{diff}\n```\n\n"
             f"The commit message should follow standard conventions, such as starting with a type "
-            f"(e.g., feat, fix, docs, style, refactor, test, chore) and a short description. Ignore version updates."
+            f"(e.g., feat, fix, docs, style, refactor, test, chore) and a short description. You can ignore version updates if they are not relevant to the changes."
         )
 
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo", # Or your preferred model
+            model="gpt-4-turbo",
             messages=[
                 {"role": "system", "content": "You are a helpful assistant that generates commit messages."},
                 {"role": "user", "content": prompt_message}
             ],
-            max_tokens=100, # Adjust as needed for commit message length
-            temperature=0.7 # Adjust for creativity vs. determinism
+            max_tokens=100,
+            temperature=0.7 # creativity vs. determinism
         )
         suggestion = response.choices[0].message.content.strip()
         return suggestion
