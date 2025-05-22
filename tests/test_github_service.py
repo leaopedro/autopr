@@ -9,7 +9,8 @@ from autopr.github_service import (
     create_pr, 
     start_work_on_issue, 
     _sanitize_branch_name,
-    get_staged_diff
+    get_staged_diff,
+    git_commit
 )
 
 
@@ -273,6 +274,78 @@ class TestGetStagedDiff(unittest.TestCase):
         diff = get_staged_diff()
         self.assertIsNone(diff)
         mock_print.assert_any_call("Error: git command not found. Please ensure git is installed and in your PATH.")
+
+
+class TestGitCommit(unittest.TestCase):
+    @patch('subprocess.run')
+    def test_git_commit_success(self, mock_subprocess_run):
+        commit_message = "feat: Implement new feature"
+        mock_process = Mock()
+        mock_process.returncode = 0
+        mock_process.stdout = "[main 1234567] feat: Implement new feature\n 1 file changed, 1 insertion(+)"
+        mock_process.stderr = ""
+        mock_subprocess_run.return_value = mock_process
+
+        success, output = git_commit(commit_message)
+
+        self.assertTrue(success)
+        self.assertEqual(output, mock_process.stdout.strip())
+        mock_subprocess_run.assert_called_once_with(
+            ["git", "commit", "-m", commit_message],
+            capture_output=True, text=True, check=False
+        )
+
+    @patch('subprocess.run')
+    def test_git_commit_failure(self, mock_subprocess_run):
+        commit_message = "fix: Attempt to fix bug"
+        mock_process = Mock()
+        mock_process.returncode = 1
+        mock_process.stdout = ""
+        mock_process.stderr = "On branch main\nYour branch is up to date with 'origin/main'.\n\nnothing to commit, working tree clean"
+        mock_subprocess_run.return_value = mock_process
+
+        success, output = git_commit(commit_message)
+
+        self.assertFalse(success)
+        self.assertEqual(output, mock_process.stderr.strip())
+        mock_subprocess_run.assert_called_once_with(
+            ["git", "commit", "-m", commit_message],
+            capture_output=True, text=True, check=False
+        )
+    
+    @patch('subprocess.run')
+    def test_git_commit_failure_error_on_stdout(self, mock_subprocess_run):
+        commit_message = "fix: Attempt to fix bug"
+        mock_process = Mock()
+        mock_process.returncode = 1
+        # Some git errors might write to stdout even on failure
+        mock_process.stdout = "Error: something went wrong on stdout"
+        mock_process.stderr = "" 
+        mock_subprocess_run.return_value = mock_process
+
+        success, output = git_commit(commit_message)
+
+        self.assertFalse(success)
+        self.assertEqual(output, mock_process.stdout.strip())
+
+    @patch('subprocess.run')
+    def test_git_commit_file_not_found_error(self, mock_subprocess_run):
+        commit_message = "test: FileNotFoundError"
+        mock_subprocess_run.side_effect = FileNotFoundError("git not found")
+
+        success, output = git_commit(commit_message)
+
+        self.assertFalse(success)
+        self.assertEqual(output, "Error: git command not found. Please ensure git is installed and in your PATH.")
+
+    @patch('subprocess.run')
+    def test_git_commit_unexpected_error(self, mock_subprocess_run):
+        commit_message = "test: Unexpected error"
+        mock_subprocess_run.side_effect = Exception("Something broke")
+
+        success, output = git_commit(commit_message)
+        self.assertFalse(success)
+        self.assertEqual(output, "An unexpected error occurred during git commit: Something broke")
 
 
 if __name__ == "__main__":

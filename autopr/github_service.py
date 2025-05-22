@@ -73,6 +73,33 @@ def get_staged_diff() -> str | None:
         return None
 
 
+def git_commit(message: str) -> tuple[bool, str]:
+    """Performs a git commit with the given message.
+    Returns a tuple (success_boolean, output_string).
+    """
+    try:
+        # Using check=False to manually handle success/failure based on returncode
+        result = subprocess.run(
+            ["git", "commit", "-m", message],
+            capture_output=True, 
+            text=True,
+            check=False 
+        )
+        if result.returncode == 0:
+            return True, result.stdout.strip()
+        else:
+            # Git commit can fail for various reasons (e.g., nothing to commit, hooks failing)
+            # Stderr usually contains the error message from git
+            error_message = result.stderr.strip()
+            if not error_message and result.stdout.strip(): # Sometimes error is on stdout
+                error_message = result.stdout.strip()
+            return False, error_message
+    except FileNotFoundError: # If git command is not found
+        return False, "Error: git command not found. Please ensure git is installed and in your PATH."
+    except Exception as e:
+        return False, f"An unexpected error occurred during git commit: {e}"
+
+
 def start_work_on_issue(issue_number: int):
     """Fetches issue details, creates a new branch, and stores issue context."""
     print(f"Starting work on issue #{issue_number}...")

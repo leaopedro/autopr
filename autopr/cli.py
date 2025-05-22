@@ -2,7 +2,14 @@ import argparse
 
 # Functions imported from other modules within the autopr package
 from .git_utils import get_repo_from_git_config
-from .github_service import create_pr, list_issues, start_work_on_issue, get_staged_diff
+from .github_service import (
+    create_pr, 
+    list_issues, 
+    start_work_on_issue, 
+    get_staged_diff,
+    git_commit
+)
+from .ai_service import get_commit_message_suggestion
 
 # Placeholder function for commit logic
 def handle_commit_command():
@@ -11,8 +18,29 @@ def handle_commit_command():
     if staged_diff:
         print("Staged Diffs:\n")
         print(staged_diff)
-        # MVP: User manually uses this. Future: send to AI.
-        print("\nMVP: AI suggestion would appear here. Please commit manually using git.")
+        print("\nAttempting to get AI suggestion for commit message...")
+        suggestion = get_commit_message_suggestion(staged_diff)
+        
+        # Check for error messages from AI service
+        if suggestion.startswith("[Error") or suggestion.startswith("[OpenAI client not initialized") or suggestion.startswith("[No diff provided"):
+            print(f"\nCould not get AI suggestion: {suggestion}")
+            print("Please commit manually using git.")
+            return
+
+        print(f"\nSuggested commit message:\n{suggestion}")
+        
+        confirmation = input("\nDo you want to commit with this message? (y/n): ").lower()
+        if confirmation == 'y':
+            print("Committing with the suggested message...")
+            commit_success, commit_output = git_commit(suggestion)
+            if commit_success:
+                print("Commit successful!")
+                print(commit_output) # Print output from git commit
+            else:
+                print("Commit failed.")
+                print(commit_output) # Print error output from git commit
+        else:
+            print("Commit aborted by user. Please commit manually using git.")
     else:
         print("No changes staged for commit.")
 
