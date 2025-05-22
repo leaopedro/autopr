@@ -11,9 +11,9 @@ A CLI tool designed to streamline your GitHub workflow by automating Pull Reques
 
 ## Installation & Setup
 
-### For Users (if published on PyPI):
+### For Users (when published on PyPI):
 
-You can install AutoPR using pip (once published):
+You can install AutoPR using pip:
 
 ```sh
 pip install autopr_cli
@@ -42,16 +42,63 @@ Make sure you are in the root directory of your Git repository.
 
 *   **List open issues:**
     ```sh
-    python run_cli.py ls
+    autopr ls
+    # For developers: python run_cli.py ls
     ```
 *   **List all issues (open and closed):**
     ```sh
-    python run_cli.py ls -a
+    autopr ls -a
+    # For developers: python run_cli.py ls -a
     ```
+*   **Start working on an issue:**
+    ```sh
+    autopr workon <issue_number>
+    # For developers: python run_cli.py workon <issue_number>
+    ```
+    (See full guide below)
 *   **Create a new PR:**
     ```sh
-    python run_cli.py create --title "Your Amazing PR Title"
+    autopr create --title "Your Amazing PR Title"
+    # For developers: python run_cli.py create --title "Your Amazing PR Title"
     ```
+
+### Starting Work on an Issue (`autopr workon`)
+
+The `workon` command helps you kickstart development on a specific GitHub issue.
+
+**Command:**
+
+```sh
+autopr workon <issue_number>
+# For developers: python run_cli.py workon <issue_number>
+```
+
+Replace `<issue_number>` with the actual number of the GitHub issue you want to work on.
+
+**What it does:**
+
+1.  **Fetches Issue Details:** It uses the `gh` CLI to retrieve the title of the specified issue.
+2.  **Generates a Branch Name:** Based on the issue number and its title, it creates a sanitized, descriptive branch name in the format `feature/<issue_number>-<sanitized-title>`.
+    *   *Sanitization includes:* lowercasing, replacing spaces and special characters with hyphens, and limiting length.
+3.  **Creates and Switches Branch:** It executes `git checkout -b <generated_branch_name>` to create the new local branch and immediately switch to it.
+4.  **Stores Context:** The issue number is saved to a file named `.autopr_current_issue` inside your local `.git` directory. This allows future `autopr` commands (like `autopr commit` and `autopr pr create` in upcoming features) to know which issue you're currently working on.
+
+**Example:**
+
+If you want to start working on issue #42 which has the title "Fix login button display error":
+
+```sh
+autopr workon 42
+# For developers: python run_cli.py workon 42
+```
+
+This might:
+*   Fetch details for issue #42.
+*   Generate a branch name like `feature/42-fix-login-button-display-error`.
+*   Create and switch to this new branch.
+*   Save `42` into `.git/.autopr_current_issue`.
+
+You are then ready to start coding on the new branch with the issue context set up for future `autopr` commands.
 
 ## Development
 
