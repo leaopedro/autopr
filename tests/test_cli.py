@@ -2,7 +2,7 @@ import unittest
 import sys
 from unittest.mock import patch, MagicMock
 
-from autopr.cli import main as autopr_main # Import main directly
+from autopr.cli import main as autopr_main, handle_commit_command # Import main directly
 
 class TestMainCLI(unittest.TestCase):
 
@@ -55,6 +55,55 @@ class TestMainCLI(unittest.TestCase):
         with patch.object(sys, 'argv', ['cli.py', 'workon', 'not_a_number']):
             with self.assertRaises(SystemExit):
                 autopr_main()
+
+    @patch('autopr.cli.get_repo_from_git_config')
+    @patch('autopr.cli.handle_commit_command')
+    def test_commit_command_calls_handle_commit(self, mock_handle_commit, mock_get_repo):
+        mock_get_repo.return_value = "owner/repo" # Simulate successful repo detection
+        with patch.object(sys, 'argv', ['cli.py', 'commit']):
+            autopr_main()
+        mock_get_repo.assert_called_once() # Ensure repo detection is still called
+        mock_handle_commit.assert_called_once()
+
+    # Tests for handle_commit_command itself (which is now in cli.py)
+    @patch('autopr.cli.get_staged_diff')
+    @patch('builtins.print')
+    def test_handle_commit_command_with_staged_changes(self, mock_print, mock_get_staged_diff):
+        mock_get_staged_diff.return_value = "fake diff data"
+        handle_commit_command()
+        mock_get_staged_diff.assert_called_once()
+        mock_print.assert_any_call("Handling commit command...")
+        mock_print.assert_any_call("Staged Diffs:\n")
+        mock_print.assert_any_call("fake diff data")
+        mock_print.assert_any_call("\nMVP: AI suggestion would appear here. Please commit manually using git.")
+
+    @patch('autopr.cli.get_staged_diff')
+    @patch('builtins.print')
+    def test_handle_commit_command_no_staged_changes(self, mock_print, mock_get_staged_diff):
+        mock_get_staged_diff.return_value = None # Or empty string, depending on get_staged_diff behavior for no diff
+        # Based on current get_staged_diff, it returns stripped stdout, so empty string if no diff and no error.
+        # If get_staged_diff returns None on error, handle_commit_command should check for that specifically.
+        # For now, let's assume get_staged_diff returns "" for no diff.
+        mock_get_staged_diff.return_value = "" 
+
+        handle_commit_command()
+        mock_get_staged_diff.assert_called_once()
+        mock_print.assert_any_call("Handling commit command...")
+        mock_print.assert_any_call("No changes staged for commit.")
+
+    @patch('autopr.cli.get_staged_diff')
+    @patch('builtins.print')
+    def test_handle_commit_command_get_diff_returns_none(self, mock_print, mock_get_staged_diff):
+        # This tests the case where get_staged_diff itself had an error and returned None
+        mock_get_staged_diff.return_value = None
+        handle_commit_command()
+        mock_get_staged_diff.assert_called_once()
+        mock_print.assert_any_call("Handling commit command...")
+        # Depending on desired behavior, it might print an error or specific message here.
+        # Current handle_commit_command logic implicitly treats None from get_staged_diff as "no changes".
+        # If get_staged_diff prints its own errors, then handle_commit_command doesn't need to repeat.
+        # The current logic is: if not staged_diff (None or "" is falsy): print("No changes staged...")
+        mock_print.assert_any_call("No changes staged for commit.")
 
 
 # Placeholder for more CLI tests

@@ -2,8 +2,19 @@ import argparse
 
 # Functions imported from other modules within the autopr package
 from .git_utils import get_repo_from_git_config
-from .github_service import create_pr, list_issues, start_work_on_issue
+from .github_service import create_pr, list_issues, start_work_on_issue, get_staged_diff
 
+# Placeholder function for commit logic
+def handle_commit_command():
+    print("Handling commit command...")
+    staged_diff = get_staged_diff()
+    if staged_diff:
+        print("Staged Diffs:\n")
+        print(staged_diff)
+        # MVP: User manually uses this. Future: send to AI.
+        print("\nMVP: AI suggestion would appear here. Please commit manually using git.")
+    else:
+        print("No changes staged for commit.")
 
 def main():
     parser = argparse.ArgumentParser(description="AutoPR CLI")
@@ -34,15 +45,24 @@ def main():
         "issue_number", type=int, help="The number of the GitHub issue to work on."
     )
 
+    # Subparser for the 'commit' command
+    commit_parser = subparsers.add_parser("commit", help="Process staged changes for a commit.")
+    # No arguments for commit in MVP
+
     args = parser.parse_args()
 
-    # For other commands, detect repository first
+    # For commands that need repository detection or further dispatch
     try:
-        repo = get_repo_from_git_config()
+        repo = get_repo_from_git_config() # commit will also need this
         print(f"Detected repository: {repo}")
     except Exception as e:
         print(f"Error detecting repository: {e}")
-        return
+        # For commands that absolutely cannot run without repo context from .git/config
+        if args.command in ["ls", "create"]:
+             return
+        # For 'workon' and 'commit', they might have deeper git interactions that could still fail
+        # but let them proceed to their specific handlers for now.
+        pass 
 
     if args.command == "create":
         create_pr(args.title)
@@ -50,6 +70,8 @@ def main():
         start_work_on_issue(args.issue_number)
     elif args.command == "ls":
         list_issues(show_all_issues=args.all)
+    elif args.command == "commit":
+        handle_commit_command()
 
 
 # Note: The if __name__ == '__main__': block is typically not included

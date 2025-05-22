@@ -4,7 +4,13 @@ from unittest.mock import patch, Mock, mock_open
 import os
 import json
 
-from autopr.github_service import list_issues, create_pr, start_work_on_issue, _sanitize_branch_name
+from autopr.github_service import (
+    list_issues, 
+    create_pr, 
+    start_work_on_issue, 
+    _sanitize_branch_name,
+    get_staged_diff
+)
 
 
 class TestListIssues(unittest.TestCase):
@@ -203,6 +209,70 @@ class TestStartWorkOnIssue(unittest.TestCase):
         start_work_on_issue(issue_number)
         mock_isdir.assert_called_with(".git") # Check it tried to find .git
         mock_print.assert_any_call("Error: .git directory not found. Are you in a git repository?")
+
+
+class TestGetStagedDiff(unittest.TestCase):
+    @patch('subprocess.run')
+    def test_get_staged_diff_success_with_diff(self, mock_subprocess_run):
+        mock_process = Mock()
+        mock_process.stdout = "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new"
+        mock_process.stderr = ""
+        mock_process.returncode = 0 # or 1, as git diff can return 1 if there are changes
+        mock_subprocess_run.return_value = mock_process
+
+        diff = get_staged_diff()
+        self.assertEqual(diff, mock_process.stdout.strip())
+        mock_subprocess_run.assert_called_once_with(
+            ["git", "diff", "--staged"],
+            capture_output=True, 
+            text=True, 
+            check=False
+        )
+
+    @patch('subprocess.run')
+    def test_get_staged_diff_success_no_diff(self, mock_subprocess_run):
+        mock_process = Mock()
+        mock_process.stdout = "" # Empty string for no diff
+        mock_process.stderr = ""
+        mock_process.returncode = 0
+        mock_subprocess_run.return_value = mock_process
+
+        diff = get_staged_diff()
+        self.assertEqual(diff, "")
+        mock_subprocess_run.assert_called_once_with(
+            ["git", "diff", "--staged"],
+            capture_output=True, 
+            text=True, 
+            check=False
+        )
+
+    @patch('subprocess.run')
+    @patch('builtins.print')
+    def test_get_staged_diff_git_error(self, mock_print, mock_subprocess_run):
+        mock_process = Mock()
+        mock_process.stdout = ""
+        mock_process.stderr = "fatal: not a git repository (or any of the parent directories): .git"
+        mock_process.returncode = 128
+        mock_subprocess_run.return_value = mock_process
+
+        diff = get_staged_diff()
+        self.assertIsNone(diff)
+        mock_print.assert_any_call(f"Error getting staged diff: {mock_process.stderr.strip()}")
+        mock_subprocess_run.assert_called_once_with(
+            ["git", "diff", "--staged"],
+            capture_output=True, 
+            text=True, 
+            check=False
+        )
+    
+    @patch('subprocess.run')
+    @patch('builtins.print')
+    def test_get_staged_diff_file_not_found_error(self, mock_print, mock_subprocess_run):
+        mock_subprocess_run.side_effect = FileNotFoundError("git not found")
+
+        diff = get_staged_diff()
+        self.assertIsNone(diff)
+        mock_print.assert_any_call("Error: git command not found. Please ensure git is installed and in your PATH.")
 
 
 if __name__ == "__main__":
