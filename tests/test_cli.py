@@ -207,15 +207,22 @@ class TestMainCLI(unittest.TestCase):
         mock_print.assert_any_call(
             "Please break down your changes into smaller commits."
         )
-        mock_get_ai_suggestion.assert_not_called() # AI should not be called
+        mock_get_ai_suggestion.assert_not_called()  # AI should not be called
 
     @patch("autopr.cli.get_staged_diff")
     @patch("autopr.cli.get_commit_message_suggestion")
-    @patch("builtins.input", return_value="y") # Assume user confirms if AI is called
-    @patch("autopr.cli.git_commit") # Mock commit as it won't be reached if AI not called
+    @patch("builtins.input", return_value="y")  # Assume user confirms if AI is called
+    @patch(
+        "autopr.cli.git_commit"
+    )  # Mock commit as it won't be reached if AI not called
     @patch("builtins.print")
     def test_handle_commit_command_diff_exceeds_warning_limit(
-        self, mock_print, mock_git_commit, mock_input, mock_get_ai_suggestion, mock_get_staged_diff
+        self,
+        mock_print,
+        mock_git_commit,
+        mock_input,
+        mock_get_ai_suggestion,
+        mock_get_staged_diff,
     ):
         warn_diff = "b" * 400001
         mock_get_staged_diff.return_value = warn_diff
@@ -233,7 +240,7 @@ class TestMainCLI(unittest.TestCase):
         mock_print.assert_any_call(
             "Consider breaking down your changes into smaller commits for better results."
         )
-        mock_get_ai_suggestion.assert_called_once_with(warn_diff) # AI should be called
+        mock_get_ai_suggestion.assert_called_once_with(warn_diff)  # AI should be called
         mock_input.assert_called_once_with(
             "\nDo you want to commit with this message? (y/n): "
         )
