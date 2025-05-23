@@ -1,12 +1,12 @@
 import unittest
 import subprocess
-from unittest.mock import patch, Mock, mock_open
+from unittest.mock import patch, Mock, mock_open, MagicMock
 import os
 import json
 
 from autopr.github_service import (
     list_issues,
-    # create_pr, # This was removed, ensure it's not imported if not used elsewhere
+    # create_pr, # This function was removed/renamed to create_pr_gh
     start_work_on_issue,
     _sanitize_branch_name,
     get_staged_diff,
@@ -15,6 +15,10 @@ from autopr.github_service import (
     get_issue_details,
     get_commit_messages_for_branch,
     create_pr_gh,
+    get_pr_changes,
+    _get_repo_details,
+    _get_pr_head_commit_sha,
+    post_pr_review_comment
 )
 
 
@@ -698,6 +702,230 @@ class TestCreatePrGh(unittest.TestCase):
             text=True,
             check=False,
         )
+
+
+class TestGetPrChanges(unittest.TestCase):
+    @patch("subprocess.run")
+    def test_success(self, mock_subprocess_run):
+        mock_pr_number = 123
+        expected_diff = "diff --git a/file.py b/file.py\n--- a/file.py\n+++ b/file.py\n@@ -1 +1,2 @@\n-old\n+new"
+        mock_process = MagicMock(stdout=expected_diff, stderr="", returncode=0)
+        mock_subprocess_run.return_value = mock_process
+
+        diff = get_pr_changes(mock_pr_number)
+
+        self.assertEqual(diff, expected_diff)
+        mock_subprocess_run.assert_called_once_with(
+            ["gh", "pr", "view", str(mock_pr_number), "--patch"],
+            capture_output=True, text=True, check=True
+        )
+
+    @patch("subprocess.run")
+    @patch("builtins.print")
+    def test_called_process_error(self, mock_print, mock_subprocess_run):
+        mock_pr_number = 123
+        mock_subprocess_run.side_effect = subprocess.CalledProcessError(
+            cmd=["gh", "pr", "view"], returncode=1, stderr="Error from gh"
+        )
+        diff = get_pr_changes(mock_pr_number)
+        self.assertEqual(diff, "")
+        mock_print.assert_any_call(f"Error fetching PR changes for PR #{mock_pr_number} via gh:")
+        mock_print.assert_any_call("Stderr:\nError from gh")
+
+    @patch("subprocess.run")
+    @patch("builtins.print")
+    def test_file_not_found_error(self, mock_print, mock_subprocess_run):
+        mock_pr_number = 123
+        mock_subprocess_run.side_effect = FileNotFoundError
+        diff = get_pr_changes(mock_pr_number)
+        self.assertEqual(diff, "")
+        mock_print.assert_any_call("Error: 'gh' command not found. Please ensure it is installed and in your PATH.")
+
+    @patch("subprocess.run")
+    @patch("builtins.print")
+    def test_unexpected_exception(self, mock_print, mock_subprocess_run):
+        mock_pr_number = 123
+        mock_subprocess_run.side_effect = Exception("Something went wrong")
+        diff = get_pr_changes(mock_pr_number)
+        self.assertEqual(diff, "")
+        mock_print.assert_any_call(f"An unexpected error occurred while fetching PR changes: Something went wrong")
+
+
+class TestGetRepoDetails(unittest.TestCase):
+    @patch("subprocess.run")
+    def test_success_user_owner(self, mock_subprocess_run):
+        mock_response_stdout = '{"name": "my-repo", "owner": {"login": "testuser"}}'
+        mock_process = MagicMock(stdout=mock_response_stdout, returncode=0, stderr="")
+        mock_subprocess_run.return_value = mock_process
+        details = _get_repo_details()
+        self.assertEqual(details, ("testuser", "my-repo"))
+        mock_subprocess_run.assert_called_once_with(
+            ["gh", "repo", "view", "--json", "owner,name"], 
+            capture_output=True, text=True, check=True
+        )
+
+    @patch("subprocess.run")
+    def test_success_org_owner(self, mock_subprocess_run):
+        mock_response_stdout = '{"name": "our-repo", "owner": {"login": "testorg", "__typename": "Organization"}}'
+        mock_process = MagicMock(stdout=mock_response_stdout, returncode=0, stderr="")
+        mock_subprocess_run.return_value = mock_process
+        details = _get_repo_details()
+        self.assertEqual(details, ("testorg", "our-repo"))
+
+    @patch("subprocess.run")
+    @patch("builtins.print")
+    def test_called_process_error(self, mock_print, mock_subprocess_run):
+        mock_subprocess_run.side_effect = subprocess.CalledProcessError(cmd=["gh"], returncode=1, stderr="gh error")
+        details = _get_repo_details()
+        self.assertIsNone(details)
+        mock_print.assert_any_call("Error fetching repository details: gh error")
+
+    @patch("subprocess.run")
+    @patch("builtins.print")
+    def test_json_decode_error(self, mock_print, mock_subprocess_run):
+        mock_process = MagicMock(stdout="invalid json", returncode=0, stderr="")
+        mock_subprocess_run.return_value = mock_process
+        details = _get_repo_details()
+        self.assertIsNone(details)
+        mock_print.assert_any_call("Error parsing repository details from gh.")
+
+    @patch("subprocess.run")
+    @patch("builtins.print")
+    def test_file_not_found_error(self, mock_print, mock_subprocess_run):
+        mock_subprocess_run.side_effect = FileNotFoundError
+        details = _get_repo_details()
+        self.assertIsNone(details)
+        mock_print.assert_any_call("Error: 'gh' command not found for _get_repo_details.")
+
+
+class TestGetPrHeadCommitSha(unittest.TestCase):
+    @patch("subprocess.run")
+    def test_success(self, mock_subprocess_run):
+        mock_pr_number = 789
+        expected_sha = "abcdef1234567890"
+        mock_response_stdout = f'{{"headRefOid": "{expected_sha}"}}'
+        mock_process = MagicMock(stdout=mock_response_stdout, returncode=0, stderr="")
+        mock_subprocess_run.return_value = mock_process
+        sha = _get_pr_head_commit_sha(mock_pr_number)
+        self.assertEqual(sha, expected_sha)
+        mock_subprocess_run.assert_called_once_with(
+            ["gh", "pr", "view", str(mock_pr_number), "--json", "headRefOid"],
+            capture_output=True, text=True, check=True
+        )
+
+    @patch("subprocess.run")
+    @patch("builtins.print")
+    def test_called_process_error(self, mock_print, mock_subprocess_run):
+        mock_pr_number = 789
+        mock_subprocess_run.side_effect = subprocess.CalledProcessError(cmd=["gh"], returncode=1, stderr="gh error")
+        sha = _get_pr_head_commit_sha(mock_pr_number)
+        self.assertIsNone(sha)
+        mock_print.assert_any_call(f"Error fetching PR head commit SHA for PR #{mock_pr_number}: gh error")
+
+    @patch("subprocess.run")
+    @patch("builtins.print")
+    def test_json_decode_error(self, mock_print, mock_subprocess_run):
+        mock_pr_number = 789
+        mock_process = MagicMock(stdout="invalid json", returncode=0, stderr="")
+        mock_subprocess_run.return_value = mock_process
+        sha = _get_pr_head_commit_sha(mock_pr_number)
+        self.assertIsNone(sha)
+        mock_print.assert_any_call(f"Error parsing PR head commit SHA for PR #{mock_pr_number}.")
+
+    @patch("subprocess.run")
+    @patch("builtins.print")
+    def test_missing_head_ref_oid(self, mock_print, mock_subprocess_run):
+        mock_pr_number = 789
+        mock_response_stdout = '{"someOtherKey": "value"}' # headRefOid is missing
+        mock_process = MagicMock(stdout=mock_response_stdout, returncode=0, stderr="")
+        mock_subprocess_run.return_value = mock_process
+        sha = _get_pr_head_commit_sha(mock_pr_number)
+        self.assertIsNone(sha) # .get("headRefOid") returns None
+
+    @patch("subprocess.run")
+    @patch("builtins.print")
+    def test_file_not_found_error(self, mock_print, mock_subprocess_run):
+        mock_pr_number = 789
+        mock_subprocess_run.side_effect = FileNotFoundError
+        sha = _get_pr_head_commit_sha(mock_pr_number)
+        self.assertIsNone(sha)
+        mock_print.assert_any_call("Error: 'gh' command not found for _get_pr_head_commit_sha.")
+
+
+class TestPostPrReviewComment(unittest.TestCase):
+    @patch("autopr.github_service._get_repo_details")
+    @patch("autopr.github_service._get_pr_head_commit_sha")
+    @patch("subprocess.run")
+    @patch("builtins.print")
+    def test_success(self, mock_print, mock_subprocess_run, mock_get_sha, mock_get_repo):
+        mock_pr_number = 1
+        mock_body = "This is a test comment."
+        mock_path = "test_file.py"
+        mock_line = 10
+        mock_owner = "testowner"
+        mock_repo = "testrepo"
+        mock_sha = "headcommitsha"
+
+        mock_get_repo.return_value = (mock_owner, mock_repo)
+        mock_get_sha.return_value = mock_sha
+        mock_api_response = MagicMock(stdout="Comment JSON data", returncode=0, stderr="")
+        mock_subprocess_run.return_value = mock_api_response
+
+        success = post_pr_review_comment(mock_pr_number, mock_body, mock_path, mock_line)
+
+        self.assertTrue(success)
+        mock_get_repo.assert_called_once()
+        mock_get_sha.assert_called_once_with(mock_pr_number)
+        expected_api_path = f"repos/{mock_owner}/{mock_repo}/pulls/{mock_pr_number}/comments"
+        expected_fields = [
+            "-f", f"body={mock_body}",
+            "-f", f"commit_id={mock_sha}",
+            "-f", f"path={mock_path}",
+            "-F", f"line={mock_line}"
+        ]
+        mock_subprocess_run.assert_called_once_with(
+            ["gh", "api", expected_api_path, "-X", "POST"] + expected_fields,
+            capture_output=True, text=True, check=True
+        )
+        mock_print.assert_any_call(f"Successfully posted comment on PR #{mock_pr_number} to {mock_path}:{mock_line}. Response: Comment JSON data...")
+
+    @patch("autopr.github_service._get_repo_details")
+    @patch("builtins.print")
+    def test_failure_get_repo_details_fails(self, mock_print, mock_get_repo):
+        mock_get_repo.return_value = None
+        success = post_pr_review_comment(1, "body", "path", 1)
+        self.assertFalse(success)
+        mock_print.assert_any_call("Failed to post comment: Could not retrieve repository details.")
+
+    @patch("autopr.github_service._get_repo_details", return_value=("owner", "repo"))
+    @patch("autopr.github_service._get_pr_head_commit_sha")
+    @patch("builtins.print")
+    def test_failure_get_pr_head_commit_sha_fails(self, mock_print, mock_get_sha, mock_get_repo_unused):
+        mock_get_sha.return_value = None
+        success = post_pr_review_comment(1, "body", "path", 1)
+        self.assertFalse(success)
+        mock_print.assert_any_call(f"Failed to post comment: Could not retrieve head commit SHA for PR #1.")
+
+    @patch("autopr.github_service._get_repo_details", return_value=("owner", "repo"))
+    @patch("autopr.github_service._get_pr_head_commit_sha", return_value="sha")
+    @patch("subprocess.run")
+    @patch("builtins.print")
+    def test_failure_gh_api_called_process_error(self, mock_print, mock_subprocess_run, mock_get_sha_unused, mock_get_repo_unused):
+        mock_subprocess_run.side_effect = subprocess.CalledProcessError(cmd=["gh", "api"], returncode=1, stderr="API Error")
+        success = post_pr_review_comment(1, "body", "path", 1)
+        self.assertFalse(success)
+        mock_print.assert_any_call("Error posting review comment via gh api for PR #1:")
+        mock_print.assert_any_call("Stderr:\nAPI Error")
+
+    @patch("autopr.github_service._get_repo_details", return_value=("owner", "repo"))
+    @patch("autopr.github_service._get_pr_head_commit_sha", return_value="sha")
+    @patch("subprocess.run")
+    @patch("builtins.print")
+    def test_failure_gh_api_file_not_found(self, mock_print, mock_subprocess_run, mock_get_sha_unused, mock_get_repo_unused):
+        mock_subprocess_run.side_effect = FileNotFoundError
+        success = post_pr_review_comment(1, "body", "path", 1)
+        self.assertFalse(success)
+        mock_print.assert_any_call("Error: 'gh' command not found. Please ensure it is installed and in your PATH.")
 
 
 if __name__ == "__main__":
