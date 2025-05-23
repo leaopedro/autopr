@@ -31,11 +31,11 @@ def _sanitize_branch_name(name):
     # Lowercase
     name = name.lower()
     # Replace spaces and common separators with hyphens
-    name = re.sub(r'[\s_.:/]+', '-', name)
+    name = re.sub(r"[\s_.:/]+", "-", name)
     # Remove any characters that are not alphanumeric or hyphen
-    name = re.sub(r'[^a-z0-9-]', '', name)
+    name = re.sub(r"[^a-z0-9-]", "", name)
     # Remove leading/trailing hyphens
-    name = name.strip('-')
+    name = name.strip("-")
     # Limit length to avoid issues (e.g., 50 chars for the title part)
     return name[:50]
 
@@ -48,12 +48,12 @@ def get_staged_diff() -> str | None:
         # Ensure we are in a git repository, otherwise `git diff` might act unexpectedly or error.
         # A simple check could be to see if `.git` exists or `git rev-parse --is-inside-work-tree`
         # For now, assume `handle_commit_command` is called in a context where being in a git repo is expected.
-        
+
         result = subprocess.run(
             ["git", "diff", "--staged"],
-            capture_output=True, 
-            text=True, 
-            check=False # Don't raise an exception for non-zero exit if there are no staged changes (it might return 1)
+            capture_output=True,
+            text=True,
+            check=False,  # Don't raise an exception for non-zero exit if there are no staged changes (it might return 1)
         )
         # `git diff --staged` can return exit code 1 if there are differences, 0 if none.
         # We are interested in the stdout (the diff itself).
@@ -61,12 +61,16 @@ def get_staged_diff() -> str | None:
         if result.stderr:
             # This could capture git errors like "not a git repository"
             print(f"Error getting staged diff: {result.stderr.strip()}")
-            return None # Or handle more gracefully
-        
-        return result.stdout.strip() # .strip() to remove leading/trailing whitespace, including newlines if diff is empty
+            return None  # Or handle more gracefully
 
-    except FileNotFoundError: # If git command is not found
-        print("Error: git command not found. Please ensure git is installed and in your PATH.")
+        return (
+            result.stdout.strip()
+        )  # .strip() to remove leading/trailing whitespace, including newlines if diff is empty
+
+    except FileNotFoundError:  # If git command is not found
+        print(
+            "Error: git command not found. Please ensure git is installed and in your PATH."
+        )
         return None
     except Exception as e:
         print(f"An unexpected error occurred while getting staged diff: {e}")
@@ -81,9 +85,9 @@ def git_commit(message: str) -> tuple[bool, str]:
         # Using check=False to manually handle success/failure based on returncode
         result = subprocess.run(
             ["git", "commit", "-m", message],
-            capture_output=True, 
+            capture_output=True,
             text=True,
-            check=False 
+            check=False,
         )
         if result.returncode == 0:
             return True, result.stdout.strip()
@@ -91,11 +95,16 @@ def git_commit(message: str) -> tuple[bool, str]:
             # Git commit can fail for various reasons (e.g., nothing to commit, hooks failing)
             # Stderr usually contains the error message from git
             error_message = result.stderr.strip()
-            if not error_message and result.stdout.strip(): # Sometimes error is on stdout
+            if (
+                not error_message and result.stdout.strip()
+            ):  # Sometimes error is on stdout
                 error_message = result.stdout.strip()
             return False, error_message
-    except FileNotFoundError: # If git command is not found
-        return False, "Error: git command not found. Please ensure git is installed and in your PATH."
+    except FileNotFoundError:  # If git command is not found
+        return (
+            False,
+            "Error: git command not found. Please ensure git is installed and in your PATH.",
+        )
     except Exception as e:
         return False, f"An unexpected error occurred during git commit: {e}"
 
@@ -106,33 +115,42 @@ def start_work_on_issue(issue_number: int):
     try:
         # Fetch issue details
         gh_issue_cmd = [
-            'gh', 'issue', 'view',
+            "gh",
+            "issue",
+            "view",
             str(issue_number),
-            '--json', 'number,title'
+            "--json",
+            "number,title",
         ]
-        result = subprocess.run(gh_issue_cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            gh_issue_cmd, capture_output=True, text=True, check=True
+        )
         issue_data = json.loads(result.stdout)
-        issue_title = issue_data.get('title', 'untitled')
+        issue_title = issue_data.get("title", "untitled")
 
         # Generate branch name
         sanitized_title = _sanitize_branch_name(issue_title)
         branch_name = f"feature/{issue_number}-{sanitized_title}"
 
         print(f"Creating and switching to branch: {branch_name}")
-        git_checkout_cmd = ['git', 'checkout', '-b', branch_name]
-        subprocess.run(git_checkout_cmd, check=True, capture_output=True, text=True) # capture_output to hide git success msgs if desired
-        
+        git_checkout_cmd = ["git", "checkout", "-b", branch_name]
+        subprocess.run(
+            git_checkout_cmd, check=True, capture_output=True, text=True
+        )  # capture_output to hide git success msgs if desired
+
         # Store issue context
         # Ensure .git directory exists (it should in a git repo)
         git_dir = ".git"
         if not os.path.isdir(git_dir):
             print(f"Error: .git directory not found. Are you in a git repository?")
             return
-        
+
         context_file_path = os.path.join(git_dir, ".autopr_current_issue")
-        with open(context_file_path, 'w') as f:
+        with open(context_file_path, "w") as f:
             f.write(str(issue_number))
-        print(f"Issue #{issue_number} context saved. You are now on branch {branch_name}.")
+        print(
+            f"Issue #{issue_number} context saved. You are now on branch {branch_name}."
+        )
 
     except subprocess.CalledProcessError as e:
         print(f"Error during 'workon' process for issue #{issue_number}:")
@@ -145,3 +163,72 @@ def start_work_on_issue(issue_number: int):
         print(f"Error: Could not parse issue details from gh CLI output.")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
+
+
+def get_pr_changes(pr_number: int) -> str:
+    """
+    Fetches the changes (diff) for a given PR number using gh CLI.
+
+    Args:
+        pr_number: The number of the PR to fetch changes for.
+
+    Returns:
+        The diff of the PR as a string, or None if there was an error.
+    """
+    try:
+        result = subprocess.run(
+            ["gh", "pr", "view", str(pr_number), "--patch"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout
+    except subprocess.CalledProcessError as e:
+        print(f"Error fetching PR changes: {e}")
+        print(f"Error output: {e.stderr}")
+        return None
+    except Exception as e:
+        print(f"Unexpected error fetching PR changes: {e}")
+        return None
+
+
+def post_pr_review_comment(pr_number: int, body: str, path: str, line: int) -> bool:
+    """
+    Posts a review comment on a specific line of a PR using gh CLI.
+
+    Args:
+        pr_number: The number of the PR to comment on.
+        body: The comment text.
+        path: The path to the file being commented on.
+        line: The line number to comment on.
+
+    Returns:
+        True if the comment was posted successfully, False otherwise.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "gh",
+                "pr",
+                "review",
+                str(pr_number),
+                "--comment",
+                "--body",
+                body,
+                "--path",
+                path,
+                "--line",
+                str(line),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error posting PR review comment: {e}")
+        print(f"Error output: {e.stderr}")
+        return False
+    except Exception as e:
+        print(f"Unexpected error posting PR review comment: {e}")
+        return False

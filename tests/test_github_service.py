@@ -5,12 +5,14 @@ import os
 import json
 
 from autopr.github_service import (
-    list_issues, 
-    create_pr, 
-    start_work_on_issue, 
+    list_issues,
+    create_pr,
+    start_work_on_issue,
     _sanitize_branch_name,
     get_staged_diff,
-    git_commit
+    git_commit,
+    get_pr_changes,
+    post_pr_review_comment,
 )
 
 
@@ -100,16 +102,21 @@ class TestCreatePr(unittest.TestCase):
 class TestSanitizeBranchName(unittest.TestCase):
     def test_basic_sanitization(self):
         self.assertEqual(_sanitize_branch_name("My Test Issue"), "my-test-issue")
-        self.assertEqual(_sanitize_branch_name("fix: a bug with spaces"), "fix-a-bug-with-spaces")
-    
+        self.assertEqual(
+            _sanitize_branch_name("fix: a bug with spaces"), "fix-a-bug-with-spaces"
+        )
+
     def test_underscore_behavior(self):
         self.assertEqual(_sanitize_branch_name("char_name"), "char-name")
         self.assertEqual(_sanitize_branch_name("some_char_name"), "some-char-name")
 
     def test_special_characters(self):
         # Revert to original complex string, expecting the last known actual output
-        self.assertEqual(_sanitize_branch_name("feat(scope)!: Highly@Special#$%^&*Char_Name"), "featscope-highlyspecialchar-name") 
-    
+        self.assertEqual(
+            _sanitize_branch_name("feat(scope)!: Highly@Special#$%^&*Char_Name"),
+            "featscope-highlyspecialchar-name",
+        )
+
     def test_leading_trailing_hyphens(self):
         self.assertEqual(_sanitize_branch_name("-leading-hyphen-"), "leading-hyphen")
         self.assertEqual(_sanitize_branch_name("trailing-hyphen-"), "trailing-hyphen")
@@ -122,20 +129,31 @@ class TestSanitizeBranchName(unittest.TestCase):
 
     def test_numbers_and_hyphens(self):
         self.assertEqual(_sanitize_branch_name("issue-123-fix"), "issue-123-fix")
-        self.assertEqual(_sanitize_branch_name("123-only-numbers-456"), "123-only-numbers-456")
+        self.assertEqual(
+            _sanitize_branch_name("123-only-numbers-456"), "123-only-numbers-456"
+        )
 
     def test_empty_and_hyphen_only_after_sanitize(self):
-        self.assertEqual(_sanitize_branch_name("!@#$"), "") # All special chars removed
-        self.assertEqual(_sanitize_branch_name("---"), "") # All hyphens stripped if that's all left
+        self.assertEqual(_sanitize_branch_name("!@#$"), "")  # All special chars removed
+        self.assertEqual(
+            _sanitize_branch_name("---"), ""
+        )  # All hyphens stripped if that's all left
 
 
 class TestStartWorkOnIssue(unittest.TestCase):
-    @patch('subprocess.run')
-    @patch('builtins.open', new_callable=mock_open)
-    @patch('os.path.isdir')
-    @patch('json.loads')
-    @patch('autopr.github_service._sanitize_branch_name') # Patch within the module
-    def test_start_work_on_issue_success(self, mock_sanitize, mock_json_loads, mock_isdir, mock_file_open, mock_subprocess_run):
+    @patch("subprocess.run")
+    @patch("builtins.open", new_callable=mock_open)
+    @patch("os.path.isdir")
+    @patch("json.loads")
+    @patch("autopr.github_service._sanitize_branch_name")  # Patch within the module
+    def test_start_work_on_issue_success(
+        self,
+        mock_sanitize,
+        mock_json_loads,
+        mock_isdir,
+        mock_file_open,
+        mock_subprocess_run,
+    ):
         issue_number = 123
         issue_title = "My Test Issue for Branch"
         sanitized_title = "my-test-issue-for-branch"
@@ -147,23 +165,24 @@ class TestStartWorkOnIssue(unittest.TestCase):
         # Mock gh issue view subprocess call
         mock_gh_process = Mock()
         mock_gh_process.stdout = '{"number": 123, "title": "My Test Issue for Branch"}'
-        
+
         # Mock git checkout subprocess call (we can make it a separate mock if we want to check args specifically)
         mock_git_process = Mock()
 
         # Configure subprocess.run to return different mocks based on command
         def subprocess_side_effect(*args, **kwargs):
             cmd = args[0]
-            if 'gh' in cmd and 'issue' in cmd and 'view' in cmd:
+            if "gh" in cmd and "issue" in cmd and "view" in cmd:
                 return mock_gh_process
-            elif 'git' in cmd and 'checkout' in cmd:
+            elif "git" in cmd and "checkout" in cmd:
                 return mock_git_process
-            return Mock() # Default mock for any other calls
+            return Mock()  # Default mock for any other calls
+
         mock_subprocess_run.side_effect = subprocess_side_effect
-        
+
         # Mock json.loads
         mock_json_loads.return_value = {"number": issue_number, "title": issue_title}
-        
+
         # Mock _sanitize_branch_name
         mock_sanitize.return_value = sanitized_title
 
@@ -171,69 +190,83 @@ class TestStartWorkOnIssue(unittest.TestCase):
 
         # Assertions
         mock_subprocess_run.assert_any_call(
-            ['gh', 'issue', 'view', str(issue_number), '--json', 'number,title'],
-            capture_output=True, text=True, check=True
+            ["gh", "issue", "view", str(issue_number), "--json", "number,title"],
+            capture_output=True,
+            text=True,
+            check=True,
         )
         mock_json_loads.assert_called_once_with(mock_gh_process.stdout)
         mock_sanitize.assert_called_once_with(issue_title)
         mock_subprocess_run.assert_any_call(
-            ['git', 'checkout', '-b', expected_branch_name],
-            check=True, capture_output=True, text=True
+            ["git", "checkout", "-b", expected_branch_name],
+            check=True,
+            capture_output=True,
+            text=True,
         )
         mock_isdir.assert_called_once_with(".git")
-        mock_file_open.assert_called_once_with(os.path.join(".git", ".autopr_current_issue"), 'w')
+        mock_file_open.assert_called_once_with(
+            os.path.join(".git", ".autopr_current_issue"), "w"
+        )
         mock_file_open().write.assert_called_once_with(str(issue_number))
 
-    @patch('subprocess.run')
-    @patch('builtins.print') # To capture error prints
+    @patch("subprocess.run")
+    @patch("builtins.print")  # To capture error prints
     def test_start_work_on_issue_gh_fails(self, mock_print, mock_subprocess_run):
         issue_number = 456
         mock_subprocess_run.side_effect = subprocess.CalledProcessError(
-            returncode=1, cmd=['gh', 'issue', 'view'], output="Error fetching", stderr="Gh error"
+            returncode=1,
+            cmd=["gh", "issue", "view"],
+            output="Error fetching",
+            stderr="Gh error",
         )
         start_work_on_issue(issue_number)
-        mock_print.assert_any_call(f"Error during 'workon' process for issue #{issue_number}:")
+        mock_print.assert_any_call(
+            f"Error during 'workon' process for issue #{issue_number}:"
+        )
         mock_print.assert_any_call("Stderr:\nGh error")
 
-    @patch('subprocess.run')
-    @patch('os.path.isdir')
-    @patch('builtins.print')
-    def test_start_work_on_issue_no_git_dir(self, mock_print, mock_isdir, mock_subprocess_run):
+    @patch("subprocess.run")
+    @patch("os.path.isdir")
+    @patch("builtins.print")
+    def test_start_work_on_issue_no_git_dir(
+        self, mock_print, mock_isdir, mock_subprocess_run
+    ):
         issue_number = 789
         # Mock gh issue view to succeed
         mock_gh_process = Mock()
         mock_gh_process.stdout = '{"number": 789, "title": "Test"}'
-        mock_subprocess_run.return_value = mock_gh_process # Covers the first call
-        
-        mock_isdir.return_value = False # Simulate .git directory NOT found
-        
+        mock_subprocess_run.return_value = mock_gh_process  # Covers the first call
+
+        mock_isdir.return_value = False  # Simulate .git directory NOT found
+
         start_work_on_issue(issue_number)
-        mock_isdir.assert_called_with(".git") # Check it tried to find .git
-        mock_print.assert_any_call("Error: .git directory not found. Are you in a git repository?")
+        mock_isdir.assert_called_with(".git")  # Check it tried to find .git
+        mock_print.assert_any_call(
+            "Error: .git directory not found. Are you in a git repository?"
+        )
 
 
 class TestGetStagedDiff(unittest.TestCase):
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_get_staged_diff_success_with_diff(self, mock_subprocess_run):
         mock_process = Mock()
         mock_process.stdout = "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new"
         mock_process.stderr = ""
-        mock_process.returncode = 0 # or 1, as git diff can return 1 if there are changes
+        mock_process.returncode = (
+            0  # or 1, as git diff can return 1 if there are changes
+        )
         mock_subprocess_run.return_value = mock_process
 
         diff = get_staged_diff()
         self.assertEqual(diff, mock_process.stdout.strip())
         mock_subprocess_run.assert_called_once_with(
-            ["git", "diff", "--staged"],
-            capture_output=True, 
-            text=True, 
-            check=False
+            ["git", "diff", "--staged"], capture_output=True, text=True, check=False
         )
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_get_staged_diff_success_no_diff(self, mock_subprocess_run):
         mock_process = Mock()
-        mock_process.stdout = "" # Empty string for no diff
+        mock_process.stdout = ""  # Empty string for no diff
         mock_process.stderr = ""
         mock_process.returncode = 0
         mock_subprocess_run.return_value = mock_process
@@ -241,43 +274,45 @@ class TestGetStagedDiff(unittest.TestCase):
         diff = get_staged_diff()
         self.assertEqual(diff, "")
         mock_subprocess_run.assert_called_once_with(
-            ["git", "diff", "--staged"],
-            capture_output=True, 
-            text=True, 
-            check=False
+            ["git", "diff", "--staged"], capture_output=True, text=True, check=False
         )
 
-    @patch('subprocess.run')
-    @patch('builtins.print')
+    @patch("subprocess.run")
+    @patch("builtins.print")
     def test_get_staged_diff_git_error(self, mock_print, mock_subprocess_run):
         mock_process = Mock()
         mock_process.stdout = ""
-        mock_process.stderr = "fatal: not a git repository (or any of the parent directories): .git"
+        mock_process.stderr = (
+            "fatal: not a git repository (or any of the parent directories): .git"
+        )
         mock_process.returncode = 128
         mock_subprocess_run.return_value = mock_process
 
         diff = get_staged_diff()
         self.assertIsNone(diff)
-        mock_print.assert_any_call(f"Error getting staged diff: {mock_process.stderr.strip()}")
-        mock_subprocess_run.assert_called_once_with(
-            ["git", "diff", "--staged"],
-            capture_output=True, 
-            text=True, 
-            check=False
+        mock_print.assert_any_call(
+            f"Error getting staged diff: {mock_process.stderr.strip()}"
         )
-    
-    @patch('subprocess.run')
-    @patch('builtins.print')
-    def test_get_staged_diff_file_not_found_error(self, mock_print, mock_subprocess_run):
+        mock_subprocess_run.assert_called_once_with(
+            ["git", "diff", "--staged"], capture_output=True, text=True, check=False
+        )
+
+    @patch("subprocess.run")
+    @patch("builtins.print")
+    def test_get_staged_diff_file_not_found_error(
+        self, mock_print, mock_subprocess_run
+    ):
         mock_subprocess_run.side_effect = FileNotFoundError("git not found")
 
         diff = get_staged_diff()
         self.assertIsNone(diff)
-        mock_print.assert_any_call("Error: git command not found. Please ensure git is installed and in your PATH.")
+        mock_print.assert_any_call(
+            "Error: git command not found. Please ensure git is installed and in your PATH."
+        )
 
 
 class TestGitCommit(unittest.TestCase):
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_git_commit_success(self, mock_subprocess_run):
         commit_message = "feat: Implement new feature"
         mock_process = Mock()
@@ -292,10 +327,12 @@ class TestGitCommit(unittest.TestCase):
         self.assertEqual(output, mock_process.stdout.strip())
         mock_subprocess_run.assert_called_once_with(
             ["git", "commit", "-m", commit_message],
-            capture_output=True, text=True, check=False
+            capture_output=True,
+            text=True,
+            check=False,
         )
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_git_commit_failure(self, mock_subprocess_run):
         commit_message = "fix: Attempt to fix bug"
         mock_process = Mock()
@@ -310,17 +347,19 @@ class TestGitCommit(unittest.TestCase):
         self.assertEqual(output, mock_process.stderr.strip())
         mock_subprocess_run.assert_called_once_with(
             ["git", "commit", "-m", commit_message],
-            capture_output=True, text=True, check=False
+            capture_output=True,
+            text=True,
+            check=False,
         )
-    
-    @patch('subprocess.run')
+
+    @patch("subprocess.run")
     def test_git_commit_failure_error_on_stdout(self, mock_subprocess_run):
         commit_message = "fix: Attempt to fix bug"
         mock_process = Mock()
         mock_process.returncode = 1
         # Some git errors might write to stdout even on failure
         mock_process.stdout = "Error: something went wrong on stdout"
-        mock_process.stderr = "" 
+        mock_process.stderr = ""
         mock_subprocess_run.return_value = mock_process
 
         success, output = git_commit(commit_message)
@@ -328,7 +367,7 @@ class TestGitCommit(unittest.TestCase):
         self.assertFalse(success)
         self.assertEqual(output, mock_process.stdout.strip())
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_git_commit_file_not_found_error(self, mock_subprocess_run):
         commit_message = "test: FileNotFoundError"
         mock_subprocess_run.side_effect = FileNotFoundError("git not found")
@@ -336,16 +375,142 @@ class TestGitCommit(unittest.TestCase):
         success, output = git_commit(commit_message)
 
         self.assertFalse(success)
-        self.assertEqual(output, "Error: git command not found. Please ensure git is installed and in your PATH.")
+        self.assertEqual(
+            output,
+            "Error: git command not found. Please ensure git is installed and in your PATH.",
+        )
 
-    @patch('subprocess.run')
+    @patch("subprocess.run")
     def test_git_commit_unexpected_error(self, mock_subprocess_run):
         commit_message = "test: Unexpected error"
         mock_subprocess_run.side_effect = Exception("Something broke")
 
         success, output = git_commit(commit_message)
         self.assertFalse(success)
-        self.assertEqual(output, "An unexpected error occurred during git commit: Something broke")
+        self.assertEqual(
+            output, "An unexpected error occurred during git commit: Something broke"
+        )
+
+
+class TestGetPrChanges(unittest.TestCase):
+    @patch("subprocess.run")
+    def test_get_pr_changes_success(self, mock_run):
+        # Mock successful gh pr view command
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=["gh", "pr", "view", "123", "--patch"],
+            returncode=0,
+            stdout="diff --git a/file.txt b/file.txt\n@@ -1,1 +1,1 @@\n-old\n+new",
+            stderr="",
+        )
+
+        result = get_pr_changes(123)
+        self.assertEqual(
+            result,
+            "diff --git a/file.txt b/file.txt\n@@ -1,1 +1,1 @@\n-old\n+new",
+        )
+        mock_run.assert_called_once_with(
+            ["gh", "pr", "view", "123", "--patch"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+    @patch("subprocess.run")
+    def test_get_pr_changes_error(self, mock_run):
+        # Mock gh pr view command failure
+        mock_run.side_effect = subprocess.CalledProcessError(
+            returncode=1,
+            cmd=["gh", "pr", "view", "123", "--patch"],
+            stderr="Error: PR #123 not found",
+        )
+
+        result = get_pr_changes(123)
+        self.assertIsNone(result)
+
+    @patch("subprocess.run")
+    def test_get_pr_changes_unexpected_error(self, mock_run):
+        # Mock unexpected error
+        mock_run.side_effect = Exception("Unexpected error")
+
+        result = get_pr_changes(123)
+        self.assertIsNone(result)
+
+
+class TestPostPrReviewComment(unittest.TestCase):
+    @patch("subprocess.run")
+    def test_post_pr_review_comment_success(self, mock_run):
+        # Mock successful gh pr review command
+        mock_run.return_value = subprocess.CompletedProcess(
+            args=[
+                "gh",
+                "pr",
+                "review",
+                "123",
+                "--comment",
+                "--body",
+                "Test comment",
+                "--path",
+                "file.txt",
+                "--line",
+                "10",
+            ],
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+
+        result = post_pr_review_comment(123, "Test comment", "file.txt", 10)
+        self.assertTrue(result)
+        mock_run.assert_called_once_with(
+            [
+                "gh",
+                "pr",
+                "review",
+                "123",
+                "--comment",
+                "--body",
+                "Test comment",
+                "--path",
+                "file.txt",
+                "--line",
+                "10",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+
+    @patch("subprocess.run")
+    def test_post_pr_review_comment_error(self, mock_run):
+        # Mock gh pr review command failure
+        mock_run.side_effect = subprocess.CalledProcessError(
+            returncode=1,
+            cmd=[
+                "gh",
+                "pr",
+                "review",
+                "123",
+                "--comment",
+                "--body",
+                "Test comment",
+                "--path",
+                "file.txt",
+                "--line",
+                "10",
+            ],
+            stderr="Error: Could not post comment",
+        )
+
+        result = post_pr_review_comment(123, "Test comment", "file.txt", 10)
+        self.assertFalse(result)
+
+    @patch("subprocess.run")
+    def test_post_pr_review_comment_unexpected_error(self, mock_run):
+        # Mock unexpected error
+        mock_run.side_effect = Exception("Unexpected error")
+
+        result = post_pr_review_comment(123, "Test comment", "file.txt", 10)
+        self.assertFalse(result)
 
 
 if __name__ == "__main__":
