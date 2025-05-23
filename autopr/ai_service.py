@@ -29,9 +29,9 @@ def get_commit_message_suggestion(diff: str) -> str:
         prompt_message = (
             f"Generate a sthraightforward, conventional one-line commit message (max 72 chars for the subject line) that best reflects a resume of all the changes"
             f"for the following git diff (read carefully):\n\n```diff\n{diff}\n```\n\n"
-            f"The commit message should follow standard conventions, such as starting with a type "
+            f"The commit message should follow standard conventions, it's very important to start with a type "
             f"(e.g., feat:, fix:, docs:, style:, refactor:, test:, chore:). You can ignore version updates if they are not relevant to the changes. "
-            f"Do not include any other text or symbols or formatting (like '```', '```diff', etc.) in the commit message, just the plain text message and nothing else."
+            f"Make sure to return just the plain text message in english characters and no symbols."
         )
 
         response = client.chat.completions.create(
@@ -90,14 +90,67 @@ def get_commit_message_suggestion(diff: str) -> str:
         return "[Error generating commit message]"
 
 
-def get_pr_description_suggestion(
-    issue_details: dict, commit_messages: list[str]
-) -> tuple[str, str]:
+def get_pr_description_suggestion(commit_messages: list[str]) -> tuple[str, str]:
+    """Generates a PR title and body suggestion based on commit messages using OpenAI.
+
+    Args:
+        commit_messages: A list of commit messages.
+
+    Returns:
+        A tuple containing the suggested PR title and body.
+        Returns ("[Error retrieving PR description]", "") on failure.
     """
-    Placeholder for AI service call to get PR title and body suggestion.
-    """
-    # In a real scenario, this would call an LLM API.
-    return "[AI Suggested PR Title]", "[AI Suggested PR Body]"
+    if not client:
+        return "[OpenAI client not initialized]", "Ensure OPENAI_API_KEY is set."
+    if not commit_messages:
+        return (
+            "[No commit messages provided]",
+            "Cannot generate PR description without commit messages.",
+        )
+
+    commits_str = "\n".join(f"- {msg}" for msg in commit_messages)
+
+    prompt = (
+        f"Given the following commit messages from a feature branch:\n"
+        f"{commits_str}\n\n"
+        f"Please analyse them and generate a concise and informative Pull Request title and a concise and effective body.\n"
+        f"The title should be on the very first line, followed by a single newline character, and then the body.\n"
+        f"The body should summarize the changes and their purpose. Do not include the commit messages themselves in the body unless they add specific context not otherwise covered by a summary."
+        f"it's very important to be concise and direct to the point, summarizing how the changes affect the codebase."
+        f"Do not use markdown for the title. The body might use markdown for formatting if appropriate (e.g. bullet points)."
+    )
+
+    try:
+        completion = client.chat.completions.create(
+            model="gpt-4-turbo-preview",  # Or your preferred model
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert at writing Pull Request descriptions.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+        )
+        response_content = completion.choices[0].message.content
+        if response_content:
+            parts = response_content.split("\n", 1)
+            title = parts[0].strip()
+            body = parts[1].strip() if len(parts) > 1 else ""
+
+            # Clean title (simple cleaning)
+            title = title.replace('"', "").replace("`", "")
+
+            # Clean body (strips surrounding triple backticks and optional language specifier, or single backticks)
+            body = re.sub(r"^```(?:markdown)?\n", "", body)
+            body = re.sub(r"\n```$", "", body)
+            if body.startswith("`") and body.endswith("`"):
+                body = body[1:-1]
+
+            return title, body
+        return "[Error retrieving PR description]", ""
+    except Exception as e:
+        print(f"Error generating PR description: {e}")
+        return "[Error retrieving PR description]", ""
 
 
 def get_pr_review_suggestions(pr_changes: str) -> list[dict[str, str | int]]:

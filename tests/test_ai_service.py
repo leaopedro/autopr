@@ -1,8 +1,14 @@
 import unittest
 from unittest.mock import patch, Mock, MagicMock
 import openai  # Import openai for its error classes
+import os  # Keep os if OPENAI_API_KEY is checked directly, otherwise remove if not used elsewhere.
+import re  # Keep for regex in cleaning, or remove if cleaning logic changes.
 
-from autopr.ai_service import get_commit_message_suggestion, get_pr_review_suggestions
+from autopr.ai_service import (
+    get_commit_message_suggestion,
+    get_pr_description_suggestion,
+    get_pr_review_suggestions,
+)
 
 
 class TestGetCommitMessageSuggestion(unittest.TestCase):
@@ -245,7 +251,7 @@ class TestGetPrReviewSuggestions(unittest.TestCase):
         mock_response.choices = [
             MagicMock(
                 message=MagicMock(
-                    content='[{"path": "file.txt", "line": "not a number", "suggestion": "Consider adding a comment here"}]'
+                    content='[{"path": "file.txt", "line": "not a number", "suggestion": "Invalid line number"}]'
                 )
             )
         ]
@@ -266,7 +272,7 @@ class TestGetPrReviewSuggestions(unittest.TestCase):
         mock_response.choices = [
             MagicMock(
                 message=MagicMock(
-                    content='[{"path": "file.txt", "suggestion": "Consider adding a comment here"}]'
+                    content='[{"path": "file.txt", "suggestion": "Missing line number"}]'
                 )
             )
         ]
@@ -283,7 +289,9 @@ class TestGetPrReviewSuggestions(unittest.TestCase):
     @patch("autopr.ai_service.client")
     def test_get_pr_review_suggestions_api_error(self, mock_client):
         # Mock OpenAI API error
-        mock_client.chat.completions.create.side_effect = Exception("API Error")
+        mock_client.chat.completions.create.side_effect = openai.APIError(
+            "API error", request=None, body=None
+        )
 
         # Test the function
         result = get_pr_review_suggestions(
@@ -292,6 +300,107 @@ class TestGetPrReviewSuggestions(unittest.TestCase):
 
         # Verify the result
         self.assertEqual(result, [])
+
+
+class TestGetPrDescriptionSuggestion(unittest.TestCase):
+    @patch("autopr.ai_service.client")
+    def test_get_pr_description_suggestion_success(self, mock_openai_client):
+        # Mock OpenAI response
+        mock_response = MagicMock()
+        mock_response.choices = [
+            MagicMock(
+                message=MagicMock(
+                    content="feat: Add new feature\n\nThis PR adds a new feature that improves the user experience."
+                )
+            )
+        ]
+        mock_openai_client.chat.completions.create.return_value = mock_response
+
+        # Test the function
+        title, body = get_pr_description_suggestion(["feat: Add new feature"])
+
+        # Verify the result
+        self.assertEqual(title, "feat: Add new feature")
+        self.assertEqual(
+            body, "This PR adds a new feature that improves the user experience."
+        )
+
+        # Verify OpenAI call
+        mock_openai_client.chat.completions.create.assert_called_once()
+        call_args = mock_openai_client.chat.completions.create.call_args[1]
+        self.assertEqual(call_args["model"], "gpt-4-turbo-preview")
+        self.assertEqual(len(call_args["messages"]), 2)
+        self.assertEqual(call_args["messages"][0]["role"], "system")
+        self.assertEqual(call_args["messages"][1]["role"], "user")
+
+    @patch("autopr.ai_service.client")
+    def test_get_pr_description_no_commit_messages(self, mock_openai_client):
+        title, body = get_pr_description_suggestion([])
+        self.assertEqual(title, "[No commit messages provided]")
+        self.assertEqual(body, "Cannot generate PR description without commit messages.")
+        mock_openai_client.chat.completions.create.assert_not_called()
+
+    def test_get_pr_description_no_openai_client(self):
+        # Simulate client not being initialized
+        with patch("autopr.ai_service.client", None):
+            title, body = get_pr_description_suggestion(["some commit"])
+            self.assertEqual(title, "[OpenAI client not initialized]")
+            self.assertEqual(body, "Ensure OPENAI_API_KEY is set.")
+
+    @patch("autopr.ai_service.client")
+    def test_get_pr_description_suggestion_api_error(self, mock_openai_client):
+        mock_openai_client.chat.completions.create.side_effect = openai.APIError(
+            "API error", request=None, body=None
+        )
+        title, body = get_pr_description_suggestion(["some commit"])
+        self.assertEqual(title, "[Error retrieving PR description]")
+        self.assertEqual(body, "")
+
+    @patch("autopr.ai_service.client")
+    def test_get_pr_description_suggestion_empty_response(self, mock_openai_client):
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock(message=MagicMock(content=""))]
+        mock_openai_client.chat.completions.create.return_value = mock_response
+
+        title, body = get_pr_description_suggestion(["some commit"])
+        self.assertEqual(title, "[Error retrieving PR description]")
+        self.assertEqual(body, "")
+
+    @patch("autopr.ai_service.client")
+    def test_get_pr_description_suggestion_cleans_title_and_body(
+        self, mock_openai_client
+    ):
+        mock_response = MagicMock()
+        mock_response.choices = [
+            MagicMock(
+                message=MagicMock(
+                    content='```markdown\nfeat: "Title" with `backticks`\n\nBody with `backticks` and ```code blocks```\n```'
+                )
+            )
+        ]
+        mock_openai_client.chat.completions.create.return_value = mock_response
+
+        title, body = get_pr_description_suggestion(["some commit"])
+        self.assertEqual(title, 'feat: Title with backticks')
+        self.assertEqual(body, "Body with `backticks` and code blocks")
+
+    @patch("autopr.ai_service.client")
+    def test_get_pr_description_suggestion_body_only_single_backticks(
+        self, mock_openai_client
+    ):
+        mock_response = MagicMock()
+        mock_response.choices = [
+            MagicMock(
+                message=MagicMock(
+                    content="feat: Title\n\n`Body with single backticks`"
+                )
+            )
+        ]
+        mock_openai_client.chat.completions.create.return_value = mock_response
+
+        title, body = get_pr_description_suggestion(["some commit"])
+        self.assertEqual(title, "feat: Title")
+        self.assertEqual(body, "Body with single backticks")
 
 
 if __name__ == "__main__":

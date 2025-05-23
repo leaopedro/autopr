@@ -10,6 +10,10 @@ from .github_service import (
     git_commit,
     get_pr_changes,
     post_pr_review_comment,
+    get_current_issue_number,
+    get_issue_details,
+    get_commit_messages_for_branch,
+    create_pr_gh,
 )
 from .ai_service import (
     get_commit_message_suggestion,
@@ -17,12 +21,32 @@ from .ai_service import (
     get_pr_review_suggestions,
 )
 
+# Import the actual create_pr from github_service if we rename the cli handler
+# from .github_service import create_pr as service_create_pr
+
+from .ai_service import get_commit_message_suggestion, get_pr_description_suggestion
+
 
 # Placeholder function for commit logic
-def handle_commit_command():
+def handle_commit_command():  # Handles the 'commit' command logic, including AI suggestions.
     print("Handling commit command...")
     staged_diff = get_staged_diff()
     if staged_diff:
+        diff_len = len(staged_diff)
+        if diff_len > 450000:
+            print(
+                f"Error: Diff is too large ({diff_len} characters). Maximum allowed is 450,000 characters."
+            )
+            print("Please break down your changes into smaller commits.")
+            return
+        elif diff_len > 400000:
+            print(
+                f"Warning: Diff is very large ({diff_len} characters). AI suggestion quality may be affected."
+            )
+            print(
+                "Consider breaking down your changes into smaller commits for better results."
+            )
+
         print("Staged Diffs:\n")
         print(staged_diff)
         print("\nAttempting to get AI suggestion for commit message...")
@@ -103,6 +127,58 @@ def handle_review_command(pr_number: int):
     )
 
 
+def handle_pr_create_command(base_branch: str, repo_path: str = "."):
+    print(f"Initiating PR creation process against base branch: {base_branch}")
+
+    commit_messages = get_commit_messages_for_branch(base_branch)
+    if commit_messages is None:
+        print(
+            f"Error: Could not retrieve commit messages for the current branch against base '{base_branch}'."
+        )
+        return
+    if not commit_messages:
+        print(
+            "No new commit messages found on this branch compared to base. Cannot generate PR description."
+        )
+        return
+
+    print(f"Retrieved {len(commit_messages)} commit message(s).")
+
+    print("\nAttempting to generate PR title and body using AI...")
+    pr_title_suggestion, pr_body_suggestion = get_pr_description_suggestion(
+        commit_messages
+    )
+
+    print("\n--- Suggested PR Title ---")
+    print(pr_title_suggestion)
+    print("\n--- Suggested PR Body ---")
+    print(pr_body_suggestion)
+
+    confirmation = input("Do you want to create this PR? (y/n): ").lower()
+    if confirmation == "y":
+        if not pr_title_suggestion:
+            print("Error: Cannot create PR with an empty title suggestion.")
+            return
+        if not pr_body_suggestion:  # Or decide if an empty body is acceptable
+            print(
+                "Warning: PR body suggestion is empty. Proceeding with an empty body."
+            )
+            # Alternatively, pr_body_suggestion = "" if you want to ensure it's a string
+
+        print("Attempting to create PR...")
+        success, output = create_pr_gh(
+            pr_title_suggestion, pr_body_suggestion, base_branch
+        )
+        if success:
+            print("PR created successfully!")
+            print(output)  # Print link to PR and other output from gh
+        else:
+            print("Failed to create PR.")
+            print(output)  # Print error message from gh or the service
+    else:
+        print("PR creation aborted by user.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="AutoPR CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -116,6 +192,23 @@ def main():
         "pr_number",
         type=int,
         help="The number of the PR to review.",
+    )
+
+    # Subparser for the 'pr' command
+    pr_parser = subparsers.add_parser(
+        "pr",
+        help="Suggest title and body for a new PR and create it after confirmation.",
+    )
+    pr_parser.add_argument(
+        "--title",
+        required=False,
+        help="(Optional) User-specified title hint (currently ignored by AI). AI will suggest a title.",
+    )
+    pr_parser.add_argument(
+        "--base",
+        required=False,
+        default="main",
+        help="The target base branch for the PR. Defaults to 'main'.",
     )
 
     # Subparser for the 'ls' command
@@ -172,6 +265,4 @@ def main():
         handle_review_command(args.pr_number)
 
 
-# Note: The if __name__ == '__main__': block is typically not included
-# in a module file that's meant to be imported. The entry point
-# script (run_cli.py) will handle that.
+# main() is the designated entry point for the CLI, called by setup.py.

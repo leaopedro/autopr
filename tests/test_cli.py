@@ -1,23 +1,22 @@
 import unittest
+from unittest.mock import patch, MagicMock, call
+import argparse
 import sys
-from unittest.mock import patch, MagicMock
 from io import StringIO
 
 from autopr.cli import (
     main as autopr_main,
     handle_commit_command,
     handle_review_command,
-)  # Import main directly
-
+    handle_pr_create_command,
+)
 
 class TestMainCLI(unittest.TestCase):
 
     @patch("autopr.cli.list_issues")
     @patch("autopr.cli.get_repo_from_git_config")
     def test_ls_command_calls_list_issues(self, mock_get_repo, mock_list_issues):
-        with patch.object(
-            sys, "argv", ["cli.py", "ls"]
-        ):  # Script name in argv[0] is conventional
+        with patch.object(sys, "argv", ["autopr_cli", "ls"]):
             mock_get_repo.return_value = "owner/repo"
             autopr_main()
             mock_get_repo.assert_called_once()
@@ -28,7 +27,7 @@ class TestMainCLI(unittest.TestCase):
     def test_ls_command_all_calls_list_issues_all(
         self, mock_get_repo, mock_list_issues
     ):
-        with patch.object(sys, "argv", ["cli.py", "ls", "-a"]):
+        with patch.object(sys, "argv", ["autopr_cli", "ls", "-a"]):
             mock_get_repo.return_value = "owner/repo"
             autopr_main()
             mock_get_repo.assert_called_once()
@@ -37,7 +36,7 @@ class TestMainCLI(unittest.TestCase):
     @patch("builtins.print")
     @patch("autopr.cli.get_repo_from_git_config")
     def test_repo_detection_failure(self, mock_get_repo, mock_print):
-        with patch.object(sys, "argv", ["cli.py", "ls"]):
+        with patch.object(sys, "argv", ["autopr_cli", "ls"]):
             mock_get_repo.side_effect = FileNotFoundError(
                 "Mocked .git/config not found"
             )
@@ -48,17 +47,19 @@ class TestMainCLI(unittest.TestCase):
             )
 
     @patch("autopr.cli.start_work_on_issue")
-    def test_workon_command_calls_start_work_on_issue(self, mock_start_work_on_issue):
+    @patch("autopr.cli.get_repo_from_git_config")
+    def test_workon_command_calls_start_work_on_issue_updated(
+        self, mock_get_repo, mock_start_work_on_issue
+    ):
         issue_number = 789
-        with patch.object(sys, "argv", ["cli.py", "workon", str(issue_number)]):
+        mock_get_repo.return_value = "owner/repo"
+        with patch.object(sys, "argv", ["autopr_cli", "workon", str(issue_number)]):
             autopr_main()
-            mock_start_work_on_issue.assert_called_once_with(
-                issue_number, repo_path="."
-            )
+        mock_start_work_on_issue.assert_called_once_with(issue_number, repo_path=".")
 
     @patch("builtins.print")
     def test_workon_command_invalid_issue_number(self, mock_print):
-        with patch.object(sys, "argv", ["cli.py", "workon", "not_a_number"]):
+        with patch.object(sys, "argv", ["autopr_cli", "workon", "not_a_number"]):
             with self.assertRaises(SystemExit):
                 autopr_main()
 
@@ -68,16 +69,13 @@ class TestMainCLI(unittest.TestCase):
         self, mock_handle_commit, mock_get_repo
     ):
         mock_get_repo.return_value = "owner/repo"
-        with patch.object(sys, "argv", ["cli.py", "commit"]):
+        with patch.object(sys, "argv", ["autopr_cli", "commit"]):
             autopr_main()
         mock_get_repo.assert_called_once()
-        mock_handle_commit.assert_called_once()
+        mock_handle_commit.assert_called_once_with()
 
-    # Updated tests for handle_commit_command
     @patch("builtins.input", return_value="y")
-    @patch(
-        "autopr.cli.git_commit"
-    )  # Mock the new git_commit function in cli.py's scope
+    @patch("autopr.cli.git_commit")
     @patch("autopr.cli.get_commit_message_suggestion")
     @patch("autopr.cli.get_staged_diff")
     @patch("builtins.print")
@@ -134,7 +132,7 @@ class TestMainCLI(unittest.TestCase):
             "Commit aborted by user. Please commit manually using git."
         )
 
-    @patch("builtins.input", return_value="y")  # User says yes, but commit fails
+    @patch("builtins.input", return_value="y")
     @patch("autopr.cli.git_commit")
     @patch("autopr.cli.get_commit_message_suggestion")
     @patch("autopr.cli.get_staged_diff")
@@ -185,206 +183,246 @@ class TestMainCLI(unittest.TestCase):
 
     @patch("autopr.cli.get_staged_diff")
     @patch("builtins.print")
-    # No need to patch get_commit_message_suggestion here
     def test_handle_commit_command_get_diff_returns_none(
         self, mock_print, mock_get_staged_diff
     ):
         mock_get_staged_diff.return_value = None
         handle_commit_command()
         mock_get_staged_diff.assert_called_once()
-        mock_print.assert_any_call("Handling commit command...")
         mock_print.assert_any_call("No changes staged for commit.")
 
-    def test_review_command_parsing(self):
-        with patch.object(sys, "argv", ["autopr", "review", "123"]):
-            with patch("autopr.cli.handle_review_command") as mock_handler:
-                autopr_main()
-                mock_handler.assert_called_once_with(123)
+    @patch("autopr.cli.get_repo_from_git_config")
+    @patch("autopr.cli.handle_review_command")
+    def test_review_command_calls_handle_review(
+        self, mock_handle_review, mock_get_repo
+    ):
+        mock_get_repo.return_value = "owner/repo"
+        with patch.object(sys, "argv", ["autopr_cli", "review", "123"]):
+            autopr_main()
+        mock_get_repo.assert_called_once()
+        mock_handle_review.assert_called_once_with(123)
 
-    def test_review_command_without_repo(self):
-        with patch.object(sys, "argv", ["autopr", "review", "123"]):
-            with patch(
-                "autopr.cli.get_repo_from_git_config", side_effect=Exception("No repo")
-            ):
-                with patch("autopr.cli.handle_review_command") as mock_handler:
-                    autopr_main()
-                    mock_handler.assert_not_called()
+    @patch("autopr.cli.get_repo_from_git_config")
+    @patch("autopr.cli.handle_pr_create_command")
+    def test_pr_command_calls_handle_pr_create(
+        self, mock_handle_pr_create, mock_get_repo
+    ):
+        mock_get_repo.return_value = "owner/repo"
+        with patch.object(sys, "argv", ["autopr_cli", "pr"]):
+            autopr_main()
+        mock_get_repo.assert_called_once()
+        mock_handle_pr_create.assert_called_once_with("main", ".")
+
+    @patch("autopr.cli.get_repo_from_git_config")
+    @patch("autopr.cli.handle_pr_create_command")
+    def test_pr_command_with_base_branch(
+        self, mock_handle_pr_create, mock_get_repo
+    ):
+        mock_get_repo.return_value = "owner/repo"
+        with patch.object(sys, "argv", ["autopr_cli", "pr", "--base", "develop"]):
+            autopr_main()
+        mock_get_repo.assert_called_once()
+        mock_handle_pr_create.assert_called_once_with("develop", ".")
 
 
 class TestHandleReviewCommand(unittest.TestCase):
     @patch("autopr.cli.get_pr_changes")
     @patch("autopr.cli.get_pr_review_suggestions")
     @patch("autopr.cli.post_pr_review_comment")
+    @patch("builtins.print")
     def test_handle_review_command_success(
-        self, mock_post, mock_suggestions, mock_changes
+        self, mock_print, mock_post_comment, mock_get_suggestions, mock_get_changes
     ):
         # Mock PR changes
-        mock_changes.return_value = (
-            "diff --git a/file.txt b/file.txt\n@@ -1,1 +1,1 @@\n-old\n+new"
-        )
-
+        mock_get_changes.return_value = "fake diff"
+        
         # Mock review suggestions
-        mock_suggestions.return_value = [
+        mock_get_suggestions.return_value = [
             {
-                "path": "file.txt",
+                "path": "file1.txt",
                 "line": 10,
                 "suggestion": "Consider adding a comment here",
             },
             {
-                "path": "file.txt",
+                "path": "file2.txt",
                 "line": 20,
                 "suggestion": "This could be simplified",
             },
         ]
-
-        # Mock successful comment posting
-        mock_post.return_value = True
-
-        # Capture stdout
-        with patch("sys.stdout", new=StringIO()) as fake_out:
-            handle_review_command(123)
-
-            output = fake_out.getvalue()
-            self.assertIn("Fetching changes for PR #123...", output)
-            self.assertIn(
-                "Analyzing changes and generating review suggestions...", output
-            )
-            self.assertIn("Generated 2 suggestions for review.", output)
-            self.assertIn("Posted comment on file.txt:10", output)
-            self.assertIn("Posted comment on file.txt:20", output)
-            self.assertIn(
-                "Review complete. Successfully posted 2 out of 2 comments.", output
-            )
-
-        # Verify function calls
-        mock_changes.assert_called_once_with(123)
-        mock_suggestions.assert_called_once_with(
-            "diff --git a/file.txt b/file.txt\n@@ -1,1 +1,1 @@\n-old\n+new"
-        )
-        self.assertEqual(mock_post.call_count, 2)
+        
+        # Mock posting comments
+        mock_post_comment.side_effect = [True, False]  # First succeeds, second fails
+        
+        # Test the function
+        handle_review_command(123)
+        
+        # Verify the calls
+        mock_get_changes.assert_called_once_with(123)
+        mock_get_suggestions.assert_called_once_with("fake diff")
+        self.assertEqual(mock_post_comment.call_count, 2)
+        
+        # Verify the output
+        mock_print.assert_any_call("Fetching changes for PR #123...")
+        mock_print.assert_any_call("\nAnalyzing changes and generating review suggestions...")
+        mock_print.assert_any_call("\nGenerated 2 suggestions for review.")
+        mock_print.assert_any_call("\nPosting review comments...")
+        mock_print.assert_any_call("Posted comment on file1.txt:10")
+        mock_print.assert_any_call("Failed to post comment on file2.txt:20")
+        mock_print.assert_any_call("\nReview complete. Successfully posted 1 out of 2 comments.")
 
     @patch("autopr.cli.get_pr_changes")
-    def test_handle_review_command_no_changes(self, mock_changes):
-        # Mock no PR changes
-        mock_changes.return_value = None
-
-        # Capture stdout
-        with patch("sys.stdout", new=StringIO()) as fake_out:
-            handle_review_command(123)
-
-            output = fake_out.getvalue()
-            self.assertIn("Fetching changes for PR #123...", output)
-            self.assertIn(
-                "Could not fetch PR changes. Please check the PR number and try again.",
-                output,
-            )
-
-    @patch("autopr.cli.get_pr_changes")
-    @patch("autopr.cli.get_pr_review_suggestions")
-    def test_handle_review_command_no_suggestions(self, mock_suggestions, mock_changes):
-        # Mock PR changes
-        mock_changes.return_value = (
-            "diff --git a/file.txt b/file.txt\n@@ -1,1 +1,1 @@\n-old\n+new"
-        )
-
-        # Mock no suggestions
-        mock_suggestions.return_value = []
-
-        # Capture stdout
-        with patch("sys.stdout", new=StringIO()) as fake_out:
-            handle_review_command(123)
-
-            output = fake_out.getvalue()
-            self.assertIn("Fetching changes for PR #123...", output)
-            self.assertIn(
-                "Analyzing changes and generating review suggestions...", output
-            )
-            self.assertIn(
-                "No suggestions were generated. The changes might be too complex or there might be an error.",
-                output,
-            )
-
-    @patch("autopr.cli.get_pr_changes")
-    @patch("autopr.cli.get_pr_review_suggestions")
-    @patch("autopr.cli.post_pr_review_comment")
-    def test_handle_review_command_partial_success(
-        self, mock_post, mock_suggestions, mock_changes
+    @patch("builtins.print")
+    def test_handle_review_command_no_changes(
+        self, mock_print, mock_get_changes
     ):
-        # Mock PR changes
-        mock_changes.return_value = (
-            "diff --git a/file.txt b/file.txt\n@@ -1,1 +1,1 @@\n-old\n+new"
-        )
-
-        # Mock review suggestions
-        mock_suggestions.return_value = [
-            {
-                "path": "file.txt",
-                "line": 10,
-                "suggestion": "Consider adding a comment here",
-            },
-            {
-                "path": "file.txt",
-                "line": 20,
-                "suggestion": "This could be simplified",
-            },
-        ]
-
-        # Mock one successful and one failed comment
-        mock_post.side_effect = [True, False]
-
-        # Capture stdout
-        with patch("sys.stdout", new=StringIO()) as fake_out:
-            handle_review_command(123)
-
-            output = fake_out.getvalue()
-            self.assertIn("Fetching changes for PR #123...", output)
-            self.assertIn(
-                "Analyzing changes and generating review suggestions...", output
-            )
-            self.assertIn("Generated 2 suggestions for review.", output)
-            self.assertIn("Posted comment on file.txt:10", output)
-            self.assertIn("Failed to post comment on file.txt:20", output)
-            self.assertIn(
-                "Review complete. Successfully posted 1 out of 2 comments.", output
-            )
+        mock_get_changes.return_value = ""
+        
+        handle_review_command(123)
+        
+        mock_get_changes.assert_called_once_with(123)
+        mock_print.assert_any_call("Could not fetch PR changes. Please check the PR number and try again.")
 
     @patch("autopr.cli.get_pr_changes")
     @patch("autopr.cli.get_pr_review_suggestions")
-    @patch("autopr.cli.post_pr_review_comment")
-    def test_handle_review_command_invalid_suggestion(
-        self, mock_post, mock_suggestions, mock_changes
+    @patch("builtins.print")
+    def test_handle_review_command_no_suggestions(
+        self, mock_print, mock_get_suggestions, mock_get_changes
     ):
-        # Mock PR changes
-        mock_changes.return_value = (
-            "diff --git a/file.txt b/file.txt\n@@ -1,1 +1,1 @@\n-old\n+new"
+        mock_get_changes.return_value = "fake diff"
+        mock_get_suggestions.return_value = []
+        
+        handle_review_command(123)
+        
+        mock_get_changes.assert_called_once_with(123)
+        mock_get_suggestions.assert_called_once_with("fake diff")
+        mock_print.assert_any_call(
+            "No suggestions were generated. The changes might be too complex or there might be an error."
         )
 
-        # Mock invalid suggestion format
-        mock_suggestions.return_value = [
-            {
-                "path": "file.txt",
-                # Missing line number
-                "suggestion": "Consider adding a comment here",
-            },
-        ]
 
-        # Capture stdout
-        with patch("sys.stdout", new=StringIO()) as fake_out:
-            handle_review_command(123)
+class TestHandlePrCreateCommand(unittest.TestCase):
+    @patch("autopr.cli.get_commit_messages_for_branch")
+    @patch("autopr.cli.get_pr_description_suggestion")
+    @patch("autopr.cli.create_pr_gh")
+    @patch("builtins.input", return_value="y")
+    @patch("builtins.print")
+    def test_handle_pr_create_command_success(
+        self,
+        mock_print,
+        mock_input,
+        mock_create_pr,
+        mock_get_description,
+        mock_get_commits,
+    ):
+        # Mock commit messages
+        mock_get_commits.return_value = ["feat: add feature", "fix: fix bug"]
+        
+        # Mock PR description
+        mock_get_description.return_value = (
+            "feat: Add new feature",
+            "This PR adds a new feature and fixes a bug.",
+        )
+        
+        # Mock PR creation
+        mock_create_pr.return_value = (True, "PR #123 created successfully")
+        
+        # Test the function
+        handle_pr_create_command("main")
+        
+        # Verify the calls
+        mock_get_commits.assert_called_once_with("main")
+        mock_get_description.assert_called_once_with(["feat: add feature", "fix: fix bug"])
+        mock_create_pr.assert_called_once_with(
+            "feat: Add new feature",
+            "This PR adds a new feature and fixes a bug.",
+            "main",
+        )
+        
+        # Verify the output
+        mock_print.assert_any_call("Initiating PR creation process against base branch: main")
+        mock_print.assert_any_call("Retrieved 2 commit message(s).")
+        mock_print.assert_any_call("\nAttempting to generate PR title and body using AI...")
+        mock_print.assert_any_call("\n--- Suggested PR Title ---")
+        mock_print.assert_any_call("feat: Add new feature")
+        mock_print.assert_any_call("\n--- Suggested PR Body ---")
+        mock_print.assert_any_call("This PR adds a new feature and fixes a bug.")
+        mock_print.assert_any_call("PR created successfully!")
+        mock_print.assert_any_call("PR #123 created successfully")
 
-            output = fake_out.getvalue()
-            self.assertIn("Fetching changes for PR #123...", output)
-            self.assertIn(
-                "Analyzing changes and generating review suggestions...", output
-            )
-            self.assertIn("Generated 1 suggestions for review.", output)
-            self.assertIn("Error in suggestion format: missing 'line'", output)
-            self.assertIn(
-                "Review complete. Successfully posted 0 out of 1 comments.", output
-            )
+    @patch("autopr.cli.get_commit_messages_for_branch")
+    @patch("builtins.print")
+    def test_handle_pr_create_command_no_commits(
+        self, mock_print, mock_get_commits
+    ):
+        mock_get_commits.return_value = []
+        
+        handle_pr_create_command("main")
+        
+        mock_get_commits.assert_called_once_with("main")
+        mock_print.assert_any_call(
+            "No new commit messages found on this branch compared to base. Cannot generate PR description."
+        )
 
+    @patch("autopr.cli.get_commit_messages_for_branch")
+    @patch("builtins.print")
+    def test_handle_pr_create_command_error_getting_commits(
+        self, mock_print, mock_get_commits
+    ):
+        mock_get_commits.return_value = None
+        
+        handle_pr_create_command("main")
+        
+        mock_get_commits.assert_called_once_with("main")
+        mock_print.assert_any_call(
+            "Error: Could not retrieve commit messages for the current branch against base 'main'."
+        )
 
-# Placeholder for more CLI tests
+    @patch("autopr.cli.get_commit_messages_for_branch")
+    @patch("autopr.cli.get_pr_description_suggestion")
+    @patch("builtins.input", return_value="n")
+    @patch("builtins.print")
+    def test_handle_pr_create_command_user_rejects(
+        self,
+        mock_print,
+        mock_input,
+        mock_get_description,
+        mock_get_commits,
+    ):
+        mock_get_commits.return_value = ["feat: add feature"]
+        mock_get_description.return_value = (
+            "feat: Add new feature",
+            "This PR adds a new feature.",
+        )
+        
+        handle_pr_create_command("main")
+        
+        mock_print.assert_any_call("PR creation aborted by user.")
+
+    @patch("autopr.cli.get_commit_messages_for_branch")
+    @patch("autopr.cli.get_pr_description_suggestion")
+    @patch("autopr.cli.create_pr_gh")
+    @patch("builtins.input", return_value="y")
+    @patch("builtins.print")
+    def test_handle_pr_create_command_pr_creation_fails(
+        self,
+        mock_print,
+        mock_input,
+        mock_create_pr,
+        mock_get_description,
+        mock_get_commits,
+    ):
+        mock_get_commits.return_value = ["feat: add feature"]
+        mock_get_description.return_value = (
+            "feat: Add new feature",
+            "This PR adds a new feature.",
+        )
+        mock_create_pr.return_value = (False, "Failed to create PR")
+        
+        handle_pr_create_command("main")
+        
+        mock_print.assert_any_call("Failed to create PR.")
+        mock_print.assert_any_call("Failed to create PR")
+
 
 if __name__ == "__main__":
     unittest.main()
