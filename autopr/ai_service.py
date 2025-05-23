@@ -234,14 +234,35 @@ Suggestions:"""
 
         if isinstance(parsed_output, list):
             suggestions = parsed_output
-        elif isinstance(parsed_output, dict) and "suggestions" in parsed_output and isinstance(parsed_output["suggestions"], list):
-            suggestions = parsed_output["suggestions"]
+        elif isinstance(parsed_output, dict):
+            if "suggestions" in parsed_output and isinstance(parsed_output["suggestions"], list):
+                suggestions = parsed_output["suggestions"]
+            # Check if the dict itself IS a single suggestion object
+            elif all(key in parsed_output for key in ["path", "line", "suggestion"]):
+                # Validate the types for this single suggestion before wrapping
+                if (
+                    isinstance(parsed_output.get("path"), str) and
+                    (isinstance(parsed_output.get("line"), int) or (isinstance(parsed_output.get("line"), str) and parsed_output.get("line").isdigit())) and
+                    isinstance(parsed_output.get("suggestion"), str)
+                ):
+                    # Convert line to int if it's a digit string
+                    if isinstance(parsed_output["line"], str):
+                         parsed_output["line"] = int(parsed_output["line"])
+                    suggestions = [parsed_output]  # Wrap the single suggestion in a list
+                else:
+                    print(f"Error: AI response was a single dictionary, but with incorrect field types: {parsed_output}")
+                    return [{"path": "error", "line": 0, "suggestion": "[AI response format error: single suggestion type mismatch]"}]
+            else:
+                print(f"Error: AI response dictionary is not a list of suggestions, a wrapped list, nor a single valid suggestion object. Got: {parsed_output}")
+                return [{"path": "error", "line": 0, "suggestion": "[AI response format error: unexpected dict structure]"}]
         else:
-            print(f"Error: AI response was not in the expected format (list or dict with 'suggestions' key). Got: {type(parsed_output)}")
-            return [{"path": "error", "line": 0, "suggestion": "[AI response format error]"}]
+            print(f"Error: AI response was not a list or dictionary. Got: {type(parsed_output)}")
+            # The print statement for raw response in case of unexpected dict was here, but this else is for non-dict/list.
+            # The raw dict print is now implicitly handled above if it doesn't match structures.
+            return [{"path": "error", "line": 0, "suggestion": "[AI response format error: not list or dict]"}]
 
 
-        # Validate the suggestions format
+        # Validate the suggestions format (now 'suggestions' should always be a list here)
         if not isinstance(suggestions, list):
             print("Error: AI response was not a list of suggestions")
             return [{"path": "error", "line": 0, "suggestion": "[AI response format error: not a list]"}]

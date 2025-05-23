@@ -716,7 +716,7 @@ class TestGetPrChanges(unittest.TestCase):
 
         self.assertEqual(diff, expected_diff)
         mock_subprocess_run.assert_called_once_with(
-            ["gh", "pr", "view", str(mock_pr_number), "--patch"],
+            ["gh", "pr", "diff", str(mock_pr_number)],
             capture_output=True, text=True, check=True
         )
 

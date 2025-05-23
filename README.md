@@ -62,11 +62,17 @@ Make sure you are in the root directory of your Git repository.
     # For developers: python -m autopr.cli commit
     ```
     Requires `OPENAI_API_KEY` environment variable. (See full guide below)
-*   **Create a new PR:**
+*   **Create a new PR (AI-assisted title/body):**
     ```sh
-    autopr create --title "Your Amazing PR Title"
-    # For developers: python -m autopr.cli create --title "Your Amazing PR Title"
+    autopr pr [--base <target_branch>]
+    # For developers: python -m autopr.cli pr [--base <target_branch>]
     ```
+*   **Review a Pull Request:**
+    ```sh
+    autopr review <PR_NUMBER>
+    # For developers: python -m autopr.cli review <PR_NUMBER>
+    ```
+    Requires `OPENAI_API_KEY` environment variable. (See full guide below)
 
 ### Starting Work on an Issue (`autopr workon`)
 
@@ -148,6 +154,46 @@ autopr commit
 ```
 
 If the AI service returns an error, or if you choose not to use the suggestion, you will be prompted to commit manually.
+
+### Reviewing a Pull Request (`autopr review`)
+
+The `review` command leverages AI to analyze the changes in a specified Pull Request and posts suggestions directly as comments on GitHub.
+
+**Prerequisites:**
+
+*   You must have the `gh` CLI installed and authenticated (`gh auth login`).
+*   You need to set the `OPENAI_API_KEY` environment variable with your valid OpenAI API key.
+    ```sh
+    export OPENAI_API_KEY='your_api_key_here'
+    ```
+
+**Command:**
+
+```sh
+autopr review <PR_NUMBER>
+# For developers: python -m autopr.cli review <PR_NUMBER>
+```
+Replace `<PR_NUMBER>` with the actual number of the Pull Request you want to review.
+
+**What it does:**
+
+1.  **Fetches PR Changes:** It uses `gh pr diff <PR_NUMBER>` to get the diff of the specified Pull Request.
+2.  **Sends Diff to AI:** The PR diff is sent to the OpenAI API (currently using `gpt-4-turbo-preview`) to generate review suggestions.
+3.  **Parses Suggestions:** The AI is prompted to return suggestions in a specific JSON format, including the file path, line number, and the suggestion text.
+4.  **Posts Comments to GitHub:** For each valid suggestion, `autopr` uses `gh api` to post a review comment directly to the specified line in the relevant file of the Pull Request. It dynamically fetches repository and PR details (like the head commit SHA) to ensure comments are correctly attributed.
+5.  **Provides Summary:** Outputs a summary of how many comments were successfully posted and if any failures occurred.
+6.  **Handles Errors:** If there are issues (e.g., PR not found, AI errors, problems posting comments), appropriate messages are displayed.
+
+**Example:**
+
+To review Pull Request #7:
+
+```sh
+autopr review 7
+# For developers: python -m autopr.cli review 7
+```
+
+`autopr` will then fetch the changes for PR #7, get AI suggestions, and attempt to post them as review comments on GitHub.
 
 ## Development
 

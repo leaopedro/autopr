@@ -319,7 +319,7 @@ def create_pr_gh(title: str, body: str, base_branch: str) -> tuple[bool, str]:
 
 def get_pr_changes(pr_number: int) -> str:
     """
-    Fetches the changes (diff) for a given PR number using 'gh pr view --patch'.
+    Fetches the changes (diff) for a given PR number using 'gh pr diff'.
     
     Args:
         pr_number: The number of the PR to fetch changes for.
@@ -329,7 +329,7 @@ def get_pr_changes(pr_number: int) -> str:
     """
     print(f"Fetching changes for PR #{pr_number}...")
     try:
-        cmd = ["gh", "pr", "view", str(pr_number), "--patch"]
+        cmd = ["gh", "pr", "diff", str(pr_number)]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         return result.stdout.strip()
     except subprocess.CalledProcessError as e:
