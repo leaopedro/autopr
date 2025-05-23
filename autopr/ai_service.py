@@ -2,6 +2,7 @@
 import os
 import openai
 import re  # Import re for regex operations
+import json
 
 # Initialize OpenAI client. API key is read from environment variable OPENAI_API_KEY by default.
 # It's good practice to handle potential missing key if you want to provide a graceful fallback or error.
@@ -161,7 +162,161 @@ def get_pr_description_suggestion(commit_messages: list[str]) -> tuple[str, str]
             return "[AI returned empty response]", ""
     except Exception as e:
         print(f"Error calling OpenAI API for PR description: {e}")
-        return "[Error retrieving PR description]", str(e)
+        return "[Error retrieving PR description]", ""
 
 
-# Placeholder for future PR feedback/review functionality
+def get_pr_review_suggestions(pr_changes: str) -> list[dict[str, str | int]]:
+    """
+    Analyzes PR changes and generates review suggestions.
+
+    Args:
+        pr_changes: The diff of the PR changes.
+
+    Returns:
+        A list of dictionaries containing review suggestions, each with:
+        - path: The path to the file being commented on
+        - line: The line number to comment on
+        - suggestion: The review suggestion text
+    """
+    if not client:
+        return [{"path": "error", "line": 0, "suggestion": "[OpenAI client not initialized. Check API key.]"}]
+    if not pr_changes:
+        return [{"path": "error", "line": 0, "suggestion": "[No PR changes provided to generate review.]"}]
+
+    try:
+        # Construct the prompt for the AI
+        prompt = f"""You are a code reviewer. Analyze the following PR changes and provide specific, actionable suggestions for improvement.
+For each suggestion, provide:
+1. The file path (string)
+2. The line number to comment on (integer)
+3. A clear, constructive suggestion (string)
+
+Focus on:
+- Code quality and readability
+- Potential bugs or edge cases
+- Performance considerations
+- Best practices
+- Documentation needs
+
+Format each suggestion as a JSON object with 'path', 'line', and 'suggestion' fields.
+Return a JSON array of these objects. If no suggestions are applicable, return an empty JSON array.
+
+PR Changes:
+```diff
+{pr_changes}
+```
+
+Suggestions:"""
+
+        # Get response from OpenAI
+        response = client.chat.completions.create(
+            model="gpt-4-turbo-preview",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a code reviewer providing specific, actionable suggestions for PR changes. Return only valid JSON, an array of objects.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.5, # Lower temperature for more focused and deterministic suggestions
+            max_tokens=1500, # Increased max_tokens to allow for more comprehensive reviews
+            response_format={ "type": "json_object" } # Ensure response is JSON
+        )
+
+        # Extract and parse the response
+        suggestions_text = response.choices[0].message.content.strip()
+        
+        # The response_format={ "type": "json_object" } should ensure it's a json object.
+        # The prompt asks for a JSON array, which could be a value within the object.
+        # Let's assume the AI returns something like: {"suggestions": [...]} or just the array.
+
+        parsed_output = json.loads(suggestions_text)
+
+        if isinstance(parsed_output, list):
+            suggestions = parsed_output
+        elif isinstance(parsed_output, dict):
+            if "suggestions" in parsed_output and isinstance(parsed_output["suggestions"], list):
+                suggestions = parsed_output["suggestions"]
+            # Check if the dict itself IS a single suggestion object
+            elif all(key in parsed_output for key in ["path", "line", "suggestion"]):
+                # Validate the types for this single suggestion before wrapping
+                if (
+                    isinstance(parsed_output.get("path"), str) and
+                    (isinstance(parsed_output.get("line"), int) or (isinstance(parsed_output.get("line"), str) and parsed_output.get("line").isdigit())) and
+                    isinstance(parsed_output.get("suggestion"), str)
+                ):
+                    # Convert line to int if it's a digit string
+                    if isinstance(parsed_output["line"], str):
+                         parsed_output["line"] = int(parsed_output["line"])
+                    suggestions = [parsed_output]  # Wrap the single suggestion in a list
+                else:
+                    print(f"Error: AI response was a single dictionary, but with incorrect field types: {parsed_output}")
+                    return [{"path": "error", "line": 0, "suggestion": "[AI response format error: single suggestion type mismatch]"}]
+            else:
+                print(f"Error: AI response dictionary is not a list of suggestions, a wrapped list, nor a single valid suggestion object. Got: {parsed_output}")
+                return [{"path": "error", "line": 0, "suggestion": "[AI response format error: unexpected dict structure]"}]
+        else:
+            print(f"Error: AI response was not a list or dictionary. Got: {type(parsed_output)}")
+            # The print statement for raw response in case of unexpected dict was here, but this else is for non-dict/list.
+            # The raw dict print is now implicitly handled above if it doesn't match structures.
+            return [{"path": "error", "line": 0, "suggestion": "[AI response format error: not list or dict]"}]
+
+
+        # Validate the suggestions format (now 'suggestions' should always be a list here)
+        if not isinstance(suggestions, list):
+            print("Error: AI response was not a list of suggestions")
+            return [{"path": "error", "line": 0, "suggestion": "[AI response format error: not a list]"}]
+
+        valid_suggestions = []
+        for suggestion in suggestions:
+            if not isinstance(suggestion, dict):
+                print(f"Warning: Skipping suggestion, not a dict: {suggestion}")
+                continue
+
+            # Check for required fields
+            if not all(key in suggestion for key in ["path", "line", "suggestion"]):
+                print(f"Warning: Skipping suggestion, missing required keys: {suggestion}")
+                continue
+
+            # Validate types
+            if not isinstance(suggestion["path"], str):
+                print(f"Warning: Skipping suggestion, 'path' is not a string: {suggestion}")
+                continue
+            if not isinstance(suggestion["line"], int):
+                 # Attempt to convert if it's a string representation of an int
+                if isinstance(suggestion["line"], str) and suggestion["line"].isdigit():
+                    suggestion["line"] = int(suggestion["line"])
+                else:
+                    print(f"Warning: Skipping suggestion, 'line' is not an int: {suggestion}")
+                    continue
+            if not isinstance(suggestion["suggestion"], str):
+                print(f"Warning: Skipping suggestion, 'suggestion' is not a string: {suggestion}")
+                continue
+            
+            # Basic check for diff hunk markers in suggestion path (sometimes AI includes them)
+            if "diff --git" in suggestion["path"]:
+                print(f"Warning: Correcting suspicious path in suggestion: {suggestion['path']}")
+                # Attempt to extract a more reasonable path, e.g., the 'b/' path
+                match = re.search(r'b/([^ ]+)', suggestion['path'])
+                if match:
+                    suggestion['path'] = match.group(1)
+                else:
+                    # Fallback or further refinement needed if this simple regex isn't enough
+                    print(f"Warning: Could not reliably clean path: {suggestion['path']}")
+
+
+            valid_suggestions.append(suggestion)
+
+        return valid_suggestions
+
+    except json.JSONDecodeError as e:
+        print(f"Error parsing AI response as JSON: {e}")
+        print(f"Raw response was: {suggestions_text}")
+        return [{"path": "error", "line": 0, "suggestion": "[AI JSON parsing error]"}]
+    except openai.APIError as e:
+        print(f"OpenAI API Error in get_pr_review_suggestions: {e}")
+        return [{"path": "error", "line": 0, "suggestion": f"[OpenAI API Error: {e}]"}]
+    except Exception as e:
+        print(f"Error generating PR review suggestions: {e}")
+        return [{"path": "error", "line": 0, "suggestion": f"[Unexpected error in review generation: {e}]"}]
+

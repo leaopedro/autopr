@@ -315,3 +315,138 @@ def create_pr_gh(title: str, body: str, base_branch: str) -> tuple[bool, str]:
             False,
             f"An unexpected error occurred while trying to create PR with gh: {e}",
         )
+
+
+def get_pr_changes(pr_number: int) -> str:
+    """
+    Fetches the changes (diff) for a given PR number using 'gh pr diff'.
+    
+    Args:
+        pr_number: The number of the PR to fetch changes for.
+        
+    Returns:
+        The diff string if successful, empty string otherwise.
+    """
+    print(f"Fetching changes for PR #{pr_number}...")
+    try:
+        cmd = ["gh", "pr", "diff", str(pr_number)]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        return result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        print(f"Error fetching PR changes for PR #{pr_number} via gh:")
+        print(f"Command '{' '.join(e.cmd)}' failed with exit code {e.returncode}")
+        if e.stdout:
+            print(f"Stdout:\n{e.stdout}")
+        if e.stderr:
+            print(f"Stderr:\n{e.stderr}")
+        return ""
+    except FileNotFoundError:
+        print("Error: 'gh' command not found. Please ensure it is installed and in your PATH.")
+        return ""
+    except Exception as e:
+        print(f"An unexpected error occurred while fetching PR changes: {e}")
+        return ""
+
+
+def _get_repo_details() -> tuple[str, str] | None:
+    """Fetches repository owner and name using gh repo view."""
+    try:
+        cmd = ["gh", "repo", "view", "--json", "owner,name"]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        data = json.loads(result.stdout)
+        # Owner can be a dict for organizations, so access 'login' field
+        owner_login = data["owner"]["login"] if isinstance(data["owner"], dict) else data["owner"]
+        repo_name = data["name"]
+        return owner_login, repo_name
+    except subprocess.CalledProcessError as e:
+        print(f"Error fetching repository details: {e.stderr}")
+        return None
+    except json.JSONDecodeError:
+        print("Error parsing repository details from gh.")
+        return None
+    except FileNotFoundError:
+        print("Error: 'gh' command not found for _get_repo_details.")
+        return None
+    except Exception as e:
+        print(f"Unexpected error in _get_repo_details: {e}")
+        return None
+
+
+def _get_pr_head_commit_sha(pr_number: int) -> str | None:
+    """Fetches the head commit SHA for a given PR number."""
+    try:
+        cmd = ["gh", "pr", "view", str(pr_number), "--json", "headRefOid"]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        data = json.loads(result.stdout)
+        return data.get("headRefOid")
+    except subprocess.CalledProcessError as e:
+        print(f"Error fetching PR head commit SHA for PR #{pr_number}: {e.stderr}")
+        return None
+    except json.JSONDecodeError:
+        print(f"Error parsing PR head commit SHA for PR #{pr_number}.")
+        return None
+    except FileNotFoundError:
+        print("Error: 'gh' command not found for _get_pr_head_commit_sha.")
+        return None
+    except Exception as e:
+        print(f"Unexpected error in _get_pr_head_commit_sha for PR #{pr_number}: {e}")
+        return None
+
+
+def post_pr_review_comment(pr_number: int, body: str, path: str, line: int) -> bool:
+    """
+    Posts a review comment on a specific line of a PR using 'gh api'.
+    
+    Args:
+        pr_number: The number of the PR to comment on.
+        body: The comment text.
+        path: The path to the file being commented on.
+        line: The line number to comment on.
+        
+    Returns:
+        True if the comment was posted successfully, False otherwise.
+    """
+    print(f"Attempting to post review comment on PR #{pr_number}, file {path}:{line}")
+    repo_details = _get_repo_details()
+    if not repo_details:
+        print("Failed to post comment: Could not retrieve repository details.")
+        return False
+    owner, repo = repo_details
+
+    commit_sha = _get_pr_head_commit_sha(pr_number)
+    if not commit_sha:
+        print(f"Failed to post comment: Could not retrieve head commit SHA for PR #{pr_number}.")
+        return False
+
+    api_path = f"repos/{owner}/{repo}/pulls/{pr_number}/comments"
+    # Construct fields for the gh api command.
+    # Using -f for simple key=value and --input for JSON body if it gets complex.
+    # For now, -f should work.
+    fields = [
+        "-f", f"body={body}",
+        "-f", f"commit_id={commit_sha}",
+        "-f", f"path={path}",
+        "-F", f"line={line}" # Use -F for integer to avoid issues with gh parsing
+    ]
+    
+    cmd = ["gh", "api", api_path, "-X", "POST"] + fields
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        # Successful API call usually returns JSON data of the created comment
+        print(f"Successfully posted comment on PR #{pr_number} to {path}:{line}. Response: {result.stdout[:100]}...")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error posting review comment via gh api for PR #{pr_number}:")
+        print(f"Command '{' '.join(e.cmd)}' failed with exit code {e.returncode}")
+        if e.stdout:
+            print(f"Stdout:\n{e.stdout}")
+        if e.stderr:
+            print(f"Stderr:\n{e.stderr}")
+        return False
+    except FileNotFoundError:
+        print("Error: 'gh' command not found. Please ensure it is installed and in your PATH.")
+        return False
+    except Exception as e:
+        print(f"An unexpected error occurred while posting review comment: {e}")
+        return False

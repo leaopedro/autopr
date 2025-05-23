@@ -7,6 +7,7 @@ import re  # Keep for regex in cleaning, or remove if cleaning logic changes.
 from autopr.ai_service import (
     get_commit_message_suggestion,
     get_pr_description_suggestion,
+    get_pr_review_suggestions,
 )  # Import new function
 
 
@@ -202,10 +203,12 @@ class TestGetPrDescriptionSuggestion(unittest.TestCase):
 
     @patch("autopr.ai_service.client")
     def test_get_pr_description_suggestion_api_error(self, mock_openai_client):
-        mock_openai_client.chat.completions.create.side_effect = Exception("API Error")
-        title, body = get_pr_description_suggestion(["test commit"])
+        mock_openai_client.chat.completions.create.side_effect = openai.APIError(
+            "API Error", request=None, body=None
+        )
+        title, body = get_pr_description_suggestion(["some commit"])
         self.assertEqual(title, "[Error retrieving PR description]")
-        self.assertEqual(body, "API Error")
+        self.assertEqual(body, "")
 
     @patch("autopr.ai_service.client")
     def test_get_pr_description_suggestion_empty_response(self, mock_openai_client):
@@ -249,6 +252,212 @@ class TestGetPrDescriptionSuggestion(unittest.TestCase):
         title, body = get_pr_description_suggestion(["test commit"])
         self.assertEqual(title, "Normal Title")
         self.assertEqual(body, "Clean This Body")
+
+
+class TestGetPrReviewSuggestions(unittest.TestCase):
+    @patch("autopr.ai_service.client")
+    def test_success_basic_case(self, mock_openai_client):
+        mock_pr_changes = "diff --git a/file.py b/file.py\n--- a/file.py\n+++ b/file.py\n@@ -1,1 +1,2 @@\n print(\"hello\")\n+print(\"world\")"
+        ai_response_content = '[{"path": "file.py", "line": 2, "suggestion": "Consider a more descriptive variable name."}]'
+        
+        mock_completion = MagicMock()
+        mock_completion.message.content = ai_response_content
+        mock_openai_client.chat.completions.create.return_value = MagicMock(choices=[mock_completion])
+
+        suggestions = get_pr_review_suggestions(mock_pr_changes)
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions[0]["path"], "file.py")
+        self.assertEqual(suggestions[0]["line"], 2)
+        self.assertEqual(suggestions[0]["suggestion"], "Consider a more descriptive variable name.")
+        mock_openai_client.chat.completions.create.assert_called_once()
+        call_args = mock_openai_client.chat.completions.create.call_args[1]
+        self.assertEqual(call_args["response_format"], { "type": "json_object" })
+        self.assertIn(mock_pr_changes, call_args["messages"][1]["content"])
+
+    @patch("autopr.ai_service.client")
+    def test_success_wrapped_in_suggestions_key(self, mock_openai_client):
+        mock_pr_changes = "diff content"
+        ai_response_content = '{"suggestions": [{"path": "file.py", "line": 5, "suggestion": "Good job!"}]}'
+        mock_completion = MagicMock(message=MagicMock(content=ai_response_content))
+        mock_openai_client.chat.completions.create.return_value = MagicMock(choices=[mock_completion])
+
+        suggestions = get_pr_review_suggestions(mock_pr_changes)
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions[0]["path"], "file.py")
+        self.assertEqual(suggestions[0]["line"], 5)
+
+    @patch("autopr.ai_service.client")
+    def test_empty_pr_changes(self, mock_openai_client):
+        suggestions = get_pr_review_suggestions("")
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions[0]["path"], "error")
+        self.assertEqual(suggestions[0]["suggestion"], "[No PR changes provided to generate review.]")
+        mock_openai_client.chat.completions.create.assert_not_called()
+
+    @patch("autopr.ai_service.client", None)
+    def test_openai_client_not_initialized(self):
+        suggestions = get_pr_review_suggestions("some diff")
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions[0]["path"], "error")
+        self.assertEqual(suggestions[0]["suggestion"], "[OpenAI client not initialized. Check API key.]")
+
+    @patch("autopr.ai_service.client")
+    @patch("builtins.print") # To capture error prints
+    def test_openai_api_error(self, mock_print, mock_openai_client):
+        mock_openai_client.chat.completions.create.side_effect = openai.APIError("API connection error", request=None, body=None)
+        suggestions = get_pr_review_suggestions("some diff")
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions[0]["path"], "error")
+        self.assertTrue("OpenAI API Error" in suggestions[0]["suggestion"])
+        mock_print.assert_any_call("OpenAI API Error in get_pr_review_suggestions: API connection error")
+
+    @patch("autopr.ai_service.client")
+    @patch("builtins.print")
+    def test_json_decode_error(self, mock_print, mock_openai_client):
+        ai_response_content = "not a valid json string"
+        mock_completion = MagicMock(message=MagicMock(content=ai_response_content))
+        mock_openai_client.chat.completions.create.return_value = MagicMock(choices=[mock_completion])
+        
+        suggestions = get_pr_review_suggestions("some diff")
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions[0]["path"], "error")
+        self.assertEqual(suggestions[0]["suggestion"], "[AI JSON parsing error]")
+        mock_print.assert_any_call(f"Error parsing AI response as JSON: Expecting value: line 1 column 1 (char 0)") # Error message might vary slightly
+        mock_print.assert_any_call(f"Raw response was: {ai_response_content}")
+
+    @patch("autopr.ai_service.client")
+    @patch("builtins.print")
+    def test_unexpected_response_format_not_list_or_dict_suggestions(self, mock_print, mock_openai_client):
+        ai_response_content = '{"some_other_key": [{"path": "file.py", "line": 5, "suggestion": "Good job!"}]}'
+        mock_completion = MagicMock(message=MagicMock(content=ai_response_content))
+        mock_openai_client.chat.completions.create.return_value = MagicMock(choices=[mock_completion])
+
+        suggestions = get_pr_review_suggestions("some diff")
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions[0]["path"], "error")
+        self.assertEqual(suggestions[0]["suggestion"], "[AI response format error]")
+        mock_print.assert_any_call("Error: AI response was not in the expected format (list or dict with 'suggestions' key). Got: <class 'dict'>")
+
+    @patch("autopr.ai_service.client")
+    @patch("builtins.print")
+    def test_suggestion_item_not_a_dict(self, mock_print, mock_openai_client):
+        ai_response_content = '[{"path": "file.py", "line": 1, "suggestion": "Valid"}, "not a dict"]'
+        mock_completion = MagicMock(message=MagicMock(content=ai_response_content))
+        mock_openai_client.chat.completions.create.return_value = MagicMock(choices=[mock_completion])
+        
+        suggestions = get_pr_review_suggestions("some diff")
+        self.assertEqual(len(suggestions), 1) # Only the valid one
+        self.assertEqual(suggestions[0]["path"], "file.py")
+        mock_print.assert_any_call("Warning: Skipping suggestion, not a dict: not a dict")
+
+    @patch("autopr.ai_service.client")
+    @patch("builtins.print")
+    def test_suggestion_missing_required_keys(self, mock_print, mock_openai_client):
+        ai_response_content = '[{"path": "file.py", "suggestion": "Missing line"}]'
+        mock_completion = MagicMock(message=MagicMock(content=ai_response_content))
+        mock_openai_client.chat.completions.create.return_value = MagicMock(choices=[mock_completion])
+
+        suggestions = get_pr_review_suggestions("some diff")
+        self.assertEqual(len(suggestions), 0) # Invalid suggestion is skipped
+        mock_print.assert_any_call("Warning: Skipping suggestion, missing required keys: {'path': 'file.py', 'suggestion': 'Missing line'}")
+
+    @patch("autopr.ai_service.client")
+    @patch("builtins.print")
+    def test_suggestion_invalid_type_path(self, mock_print, mock_openai_client):
+        ai_response_content = '[{"path": 123, "line": 1, "suggestion": "Path not string"}]'
+        mock_completion = MagicMock(message=MagicMock(content=ai_response_content))
+        mock_openai_client.chat.completions.create.return_value = MagicMock(choices=[mock_completion])
+
+        suggestions = get_pr_review_suggestions("some diff")
+        self.assertEqual(len(suggestions), 0)
+        mock_print.assert_any_call("Warning: Skipping suggestion, 'path' is not a string: {'path': 123, 'line': 1, 'suggestion': 'Path not string'}")
+
+    @patch("autopr.ai_service.client")
+    @patch("builtins.print")
+    def test_suggestion_invalid_type_line_non_convertible(self, mock_print, mock_openai_client):
+        ai_response_content = '[{"path": "file.py", "line": "not_an_int", "suggestion": "Line not int"}]'
+        mock_completion = MagicMock(message=MagicMock(content=ai_response_content))
+        mock_openai_client.chat.completions.create.return_value = MagicMock(choices=[mock_completion])
+
+        suggestions = get_pr_review_suggestions("some diff")
+        self.assertEqual(len(suggestions), 0)
+        mock_print.assert_any_call("Warning: Skipping suggestion, 'line' is not an int: {'path': 'file.py', 'line': 'not_an_int', 'suggestion': 'Line not int'}")
+
+    @patch("autopr.ai_service.client")
+    def test_suggestion_convertible_string_line(self, mock_openai_client):
+        ai_response_content = '[{"path": "file.py", "line": "30", "suggestion": "Line is string 30"}]'
+        mock_completion = MagicMock(message=MagicMock(content=ai_response_content))
+        mock_openai_client.chat.completions.create.return_value = MagicMock(choices=[mock_completion])
+
+        suggestions = get_pr_review_suggestions("some diff")
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions[0]["line"], 30) # Should be converted to int
+
+    @patch("autopr.ai_service.client")
+    @patch("builtins.print")
+    def test_suggestion_invalid_type_suggestion(self, mock_print, mock_openai_client):
+        ai_response_content = '[{"path": "file.py", "line": 1, "suggestion": ["list", "not string"]}]'
+        mock_completion = MagicMock(message=MagicMock(content=ai_response_content))
+        mock_openai_client.chat.completions.create.return_value = MagicMock(choices=[mock_completion])
+
+        suggestions = get_pr_review_suggestions("some diff")
+        self.assertEqual(len(suggestions), 0)
+        mock_print.assert_any_call("Warning: Skipping suggestion, 'suggestion' is not a string: {'path': 'file.py', 'line': 1, 'suggestion': ['list', 'not string']}")
+
+    @patch("autopr.ai_service.client")
+    @patch("builtins.print")
+    def test_path_cleaning_diff_git_marker(self, mock_print, mock_openai_client):
+        ai_response_content = '[{"path": "diff --git a/src/actual/file.py b/src/actual/file.py", "line": 10, "suggestion": "Path needs cleaning."}]'
+        mock_completion = MagicMock(message=MagicMock(content=ai_response_content))
+        mock_openai_client.chat.completions.create.return_value = MagicMock(choices=[mock_completion])
+
+        suggestions = get_pr_review_suggestions("some diff")
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions[0]["path"], "src/actual/file.py")
+        mock_print.assert_any_call("Warning: Correcting suspicious path in suggestion: diff --git a/src/actual/file.py b/src/actual/file.py")
+
+    @patch("autopr.ai_service.client")
+    @patch("builtins.print")
+    def test_path_cleaning_diff_git_marker_no_b_path(self, mock_print, mock_openai_client):
+        # Edge case where our simple regex might fail
+        malformed_path = "diff --git a/src/actual/file.py src/actual/file.py" # Missing b/
+        ai_response_content = '[{"path": "' + malformed_path + '", "line": 10, "suggestion": "Path needs cleaning, no b/ path."}]'
+        mock_completion = MagicMock(message=MagicMock(content=ai_response_content))
+        mock_openai_client.chat.completions.create.return_value = MagicMock(choices=[mock_completion])
+
+        suggestions = get_pr_review_suggestions("some diff")
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions[0]["path"], malformed_path) # Path remains unchanged as regex fails
+        mock_print.assert_any_call(f"Warning: Correcting suspicious path in suggestion: {malformed_path}")
+        mock_print.assert_any_call(f"Warning: Could not reliably clean path: {malformed_path}")
+
+    @patch("autopr.ai_service.client")
+    @patch("builtins.print")
+    def test_unexpected_exception_in_service(self, mock_print, mock_openai_client):
+        mock_openai_client.chat.completions.create.side_effect = Exception("Runtime Kaboom")
+        suggestions = get_pr_review_suggestions("some diff")
+        self.assertEqual(len(suggestions), 1)
+        self.assertEqual(suggestions[0]["path"], "error")
+        self.assertTrue("Unexpected error in review generation: Runtime Kaboom" in suggestions[0]["suggestion"])
+        mock_print.assert_any_call("Error generating PR review suggestions: Runtime Kaboom")
+
+    @patch("autopr.ai_service.client")
+    def test_no_suggestions_from_ai_empty_array(self, mock_openai_client):
+        ai_response_content = '[]'
+        mock_completion = MagicMock(message=MagicMock(content=ai_response_content))
+        mock_openai_client.chat.completions.create.return_value = MagicMock(choices=[mock_completion])
+
+        suggestions = get_pr_review_suggestions("some diff")
+        self.assertEqual(len(suggestions), 0) # Empty list is a valid response
+
+    @patch("autopr.ai_service.client")
+    def test_no_suggestions_from_ai_empty_suggestions_key(self, mock_openai_client):
+        ai_response_content = '{"suggestions": []}'
+        mock_completion = MagicMock(message=MagicMock(content=ai_response_content))
+        mock_openai_client.chat.completions.create.return_value = MagicMock(choices=[mock_completion])
+
+        suggestions = get_pr_review_suggestions("some diff")
+        self.assertEqual(len(suggestions), 0) # Empty list is valid
 
 
 if __name__ == "__main__":
