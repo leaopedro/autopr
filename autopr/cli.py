@@ -53,22 +53,8 @@ def handle_commit_command(): # Handles the 'commit' command logic, including AI 
 def handle_pr_create_command(base_branch: str, repo_path: str = "."):
     print(f"Initiating PR creation process against base branch: {base_branch}")
 
-    current_issue_num = get_current_issue_number(repo_path)
-    if not current_issue_num:
-        print("Error: Could not determine the current issue. Please run `autopr workon <issue_number>` first.")
-        return
-
-    print(f"Currently working on issue: #{current_issue_num}")
-
-    issue_details = get_issue_details(current_issue_num)
-    if not issue_details:
-        print(f"Error: Could not fetch details for issue #{current_issue_num}.")
-        return
-    
-    print(f"Details for issue #{current_issue_num} fetched.")
-
     commit_messages = get_commit_messages_for_branch(base_branch)
-    if commit_messages is None: # Assuming it returns None on error, or empty list if no commits
+    if commit_messages is None: 
         print(f"Error: Could not retrieve commit messages for the current branch against base '{base_branch}'.")
         return
     if not commit_messages:
@@ -78,7 +64,7 @@ def handle_pr_create_command(base_branch: str, repo_path: str = "."):
     print(f"Retrieved {len(commit_messages)} commit message(s).")
 
     print("\nAttempting to generate PR title and body using AI...")
-    pr_title_suggestion, pr_body_suggestion = get_pr_description_suggestion(issue_details, commit_messages)
+    pr_title_suggestion, pr_body_suggestion = get_pr_description_suggestion(commit_messages)
 
     print("\n--- Suggested PR Title ---")
     print(pr_title_suggestion)

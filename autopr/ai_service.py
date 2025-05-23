@@ -81,85 +81,69 @@ def get_commit_message_suggestion(diff: str) -> str:
         print(f"An unexpected error occurred in get_commit_message_suggestion: {e}")
         return "[Error generating commit message]"
 
-def get_pr_description_suggestion(issue_details: dict, commit_messages: list[str]) -> tuple[str, str]:
-    """Generates a PR title and body using OpenAI based on issue details and commit messages."""
-    if not client:
-        return "[OpenAI client not initialized. Check API key.]", "[OpenAI client not initialized. Check API key.]"
+def get_pr_description_suggestion(commit_messages: list[str]) -> tuple[str, str]:
+    """Generates a PR title and body suggestion based on commit messages using OpenAI.
 
-    if not issue_details:
-        return "[No issue details provided]", "[No issue details provided]"
+    Args:
+        commit_messages: A list of commit messages.
+
+    Returns:
+        A tuple containing the suggested PR title and body.
+        Returns ("[Error retrieving PR description]", "") on failure.
+    """
+    if not client:
+        return "[OpenAI client not initialized]", "Ensure OPENAI_API_KEY is set."
     if not commit_messages:
-        return "[No commit messages provided]", "[No commit messages provided]"
+        return "[No commit messages provided]", "Cannot generate PR description without commit messages."
+
+    commits_str = "\n".join(f"- {msg}" for msg in commit_messages)
+
+    prompt = (
+        f"Given the following commit messages from a feature branch:\n"
+        f"{commits_str}\n\n"
+        f"Please generate a concise and informative Pull Request title and a detailed body.\n"
+        f"The title should be on the very first line, followed by a single newline character, and then the body.\n"
+        f"The body should summarize the changes and their purpose. Do not include the commit messages themselves in the body unless they add specific context not otherwise covered by a summary."
+        f"Do not use markdown for the title. The body can use markdown for formatting if appropriate (e.g. bullet points)."
+    )
 
     try:
-        # Construct a detailed prompt for the AI
-        issue_title = issue_details.get('title', 'N/A')
-        issue_body = issue_details.get('body', 'N/A')
-        issue_number = issue_details.get('number', 'N/A')
-        # Format labels nicely if they exist
-        labels = [label['name'] for label in issue_details.get('labels', [])]
-        labels_str = f"Labels: {', '.join(labels)}" if labels else "Labels: None"
-
-        commits_str = "\n".join(f"- {msg}" for msg in commit_messages)
-
-        prompt = (
-            f"Given the following GitHub issue and commit messages, please generate a suitable Pull Request title and body.\n\n"
-            f"Issue #{issue_number}: {issue_title}\n"
-            f"{labels_str}\n"
-            f"Issue Description:\n---\n{issue_body}\n---\n\n"
-            f"Commit Messages on the branch:\n---\n{commits_str}\n---\n\n"
-            f"Based on all the above, suggest a concise PR title (around 70 characters or less) and a comprehensive PR body.\n"
-            f"The PR body should summarize the changes and how they address the issue. It can reference the issue number (e.g., Closes #{issue_number}). "
-            f"Format the PR body using Markdown.\n\n"
-            f"Return ONLY the PR title on the first line, then a single newline, then the PR body. "
-            f"Do not include any other explanatory text before the title or after the body."
-        )
-
-        response = client.chat.completions.create(
-            model="gpt-4-turbo", # Or your preferred model for more complex generation
+        completion = client.chat.completions.create(
+            model="gpt-4-turbo-preview", # Or your preferred model
             messages=[
-                {"role": "system", "content": "You are an expert assistant that generates Pull Request titles and bodies."},
+                {"role": "system", "content": "You are an expert at writing Pull Request descriptions."},
                 {"role": "user", "content": prompt}
-            ],
-            max_tokens=500, # Allow more tokens for PR body
-            temperature=0.7
+            ]
         )
+        response_content = completion.choices[0].message.content
+        if response_content:
+            parts = response_content.split('\n', 1)
+            title = parts[0].strip()
+            body = parts[1].strip() if len(parts) > 1 else ""
 
-        raw_suggestion = response.choices[0].message.content.strip()
-        
-        # Split the response into title and body
-        # Expecting title on the first line, then a newline, then body
-        parts = raw_suggestion.split('\n', 1)
-        suggested_title = parts[0].strip()
-        suggested_body = parts[1].strip() if len(parts) > 1 else ""
+            # Clean title (simple cleaning)
+            title = title.replace('"', '').replace("`", "")
 
-        # Basic cleaning for title (similar to commit message cleaning, just in case)
-        if suggested_title.startswith("```"):
-            title_match = re.match(r"^\s*```[a-zA-Z]*\n(.*?)\n```\s*$", suggested_title, re.DOTALL) or \
-                          re.match(r"^\s*```(.*?)```\s*$", suggested_title, re.DOTALL)
-            if title_match: suggested_title = title_match.group(1).strip()
-        if suggested_title.startswith('`') and suggested_title.endswith('`') and suggested_title.count('`') == 2:
-            suggested_title = suggested_title[1:-1]
+            # Clean body (strips surrounding triple backticks and optional language specifier, or single backticks)
+            # Regex to find content within triple backticks, accounting for optional language specifier
+            # e.g., ```python\ncode\n``` or ```\ncode\n```
+            # The regex matches: optional whitespace, ```, optional language, newline, CAPTURED CONTENT, newline, ```, optional whitespace
+            # re.DOTALL allows . to match newlines, crucial for multi-line content.
+            match = re.match(r"^\s*```(?:[a-zA-Z0-9_\-]+)?\n(.*?)\n```\s*$", body, re.DOTALL)
+            if match:
+                body = match.group(1).strip()
+            # Fallback for body wrapped in simple triple backticks on a single line (e.g., ```body```) or if the above complex regex didn't catch it
+            elif body.startswith("```") and body.endswith("```"):
+                 body = body[3:-3].strip() 
+            # Also handle single backticks for body as a final fallback
+            elif body.startswith("`") and body.endswith("`"):
+                 body = body[1:-1].strip()
 
-        # The body is Markdown, so we don't want to strip its formatting aggressively.
-        # However, if the entire body is wrapped in ```, we might strip that.
-        if suggested_body.startswith("```") and suggested_body.endswith("```"):
-            # Check if it's a code block with a language specifier on the first line
-            body_match_lang = re.match(r"^```[a-zA-Z]*\n(.*?)\n```$", suggested_body, re.DOTALL)
-            if body_match_lang:
-                suggested_body = body_match_lang.group(1).strip() # Keep inner content
-            else:
-                # Check if it's just ```BODY```
-                body_match_simple = re.match(r"^```(.*?)```$", suggested_body, re.DOTALL)
-                if body_match_simple:
-                    suggested_body = body_match_simple.group(1).strip()
-            # If neither, it might be intentional triple backticks, leave them.
-
-        return suggested_title, suggested_body
-
-    except openai.APIError as e:
-        print(f"OpenAI API Error during PR suggestion: {e}")
-        return "[Error communicating with OpenAI API for PR]", "[Error communicating with OpenAI API for PR]"
+            return title, body
+        else:
+            return "[AI returned empty response]", ""
     except Exception as e:
-        print(f"An unexpected error occurred in get_pr_description_suggestion: {e}")
-        return "[Error generating PR suggestion]", "[Error generating PR suggestion]" 
+        print(f"Error calling OpenAI API for PR description: {e}")
+        return "[Error retrieving PR description]", str(e)
+
+# Placeholder for future PR feedback/review functionality 

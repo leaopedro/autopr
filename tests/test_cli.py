@@ -165,191 +165,132 @@ class TestMainCLI(unittest.TestCase):
 class TestHandlePrCreateCommand(unittest.TestCase):
     @patch('autopr.cli.get_pr_description_suggestion')
     @patch('autopr.cli.get_commit_messages_for_branch')
-    @patch('autopr.cli.get_issue_details')
-    @patch('autopr.cli.get_current_issue_number')
     @patch('builtins.input')
     @patch('autopr.cli.create_pr_gh')
     @patch('builtins.print')
-    def test_handle_pr_create_success(self, mock_print, mock_create_pr_gh, mock_input, mock_get_current_issue, mock_get_issue_details, mock_get_commits, mock_get_pr_desc):
+    def test_handle_pr_create_success_user_confirms(self, mock_print, mock_create_pr_gh, mock_input, mock_get_commits, mock_get_pr_desc):
         repo_path = "/fake/path"
         base_branch = "develop"
-        issue_num = 42
-        issue_details_dict = {"title": "Issue Title", "body": "Issue Body", "number": issue_num, "labels": []}
         commit_list = ["feat: did a thing", "fix: another thing"]
         ai_title, ai_body = "AI PR Title", "AI PR Body which is awesome"
 
-        mock_get_current_issue.return_value = issue_num
-        mock_get_issue_details.return_value = issue_details_dict
         mock_get_commits.return_value = commit_list
         mock_get_pr_desc.return_value = (ai_title, ai_body)
-        mock_input.return_value = 'n'
+        mock_input.return_value = 'y'
+        mock_create_pr_gh.return_value = (True, "PR created: URL")
 
         handle_pr_create_command(base_branch=base_branch, repo_path=repo_path)
 
-        mock_get_current_issue.assert_called_once_with(repo_path)
-        mock_get_issue_details.assert_called_once_with(issue_num)
         mock_get_commits.assert_called_once_with(base_branch)
-        mock_get_pr_desc.assert_called_once_with(issue_details_dict, commit_list)
-        mock_input.assert_called_once()
-        mock_create_pr_gh.assert_not_called()
+        mock_get_pr_desc.assert_called_once_with(commit_list)
+        mock_input.assert_called_once_with("Do you want to create this PR? (y/n): ")
+        mock_create_pr_gh.assert_called_once_with(ai_title, ai_body, base_branch)
 
         mock_print.assert_any_call(f"Initiating PR creation process against base branch: {base_branch}")
-        mock_print.assert_any_call(f"Currently working on issue: #{issue_num}")
-        mock_print.assert_any_call(f"Details for issue #{issue_num} fetched.")
         mock_print.assert_any_call(f"Retrieved {len(commit_list)} commit message(s).")
         mock_print.assert_any_call("\nAttempting to generate PR title and body using AI...")
         mock_print.assert_any_call("\n--- Suggested PR Title ---")
         mock_print.assert_any_call(ai_title)
         mock_print.assert_any_call("\n--- Suggested PR Body ---")
         mock_print.assert_any_call(ai_body)
-
-    @patch('autopr.cli.get_current_issue_number', return_value=None)
-    @patch('builtins.print')
-    def test_handle_pr_create_no_current_issue(self, mock_print, mock_get_current_issue):
-        handle_pr_create_command(base_branch="main", repo_path="/path")
-        mock_print.assert_any_call("Error: Could not determine the current issue. Please run `autopr workon <issue_number>` first.")
-
-    @patch('autopr.cli.get_current_issue_number', return_value=1)
-    @patch('autopr.cli.get_issue_details', return_value=None)
-    @patch('builtins.print')
-    def test_handle_pr_create_no_issue_details(self, mock_print, mock_get_details, mock_get_current_issue):
-        handle_pr_create_command(base_branch="main", repo_path="/path")
-        mock_print.assert_any_call("Error: Could not fetch details for issue #1.")
-
-    @patch('autopr.cli.get_current_issue_number', return_value=1)
-    @patch('autopr.cli.get_issue_details', return_value={"title": "T"})
-    @patch('autopr.cli.get_commit_messages_for_branch', return_value=None)
-    @patch('builtins.print')
-    def test_handle_pr_create_no_commits_error(self, mock_print, mock_get_commits, mock_get_details, mock_get_current_issue):
-        handle_pr_create_command(base_branch="main", repo_path="/path")
-        mock_print.assert_any_call("Error: Could not retrieve commit messages for the current branch against base 'main'.")
-
-    @patch('autopr.cli.get_current_issue_number', return_value=1)
-    @patch('autopr.cli.get_issue_details', return_value={"title": "T"})
-    @patch('autopr.cli.get_commit_messages_for_branch', return_value=[])
-    @patch('builtins.print')
-    def test_handle_pr_create_no_commits_empty(self, mock_print, mock_get_commits, mock_get_details, mock_get_current_issue):
-        handle_pr_create_command(base_branch="main", repo_path="/path")
-        mock_print.assert_any_call("No new commit messages found on this branch compared to base. Cannot generate PR description.")
-
-    @patch('autopr.cli.get_current_issue_number')
-    @patch('autopr.cli.get_issue_details')
-    @patch('autopr.cli.get_commit_messages_for_branch')
-    @patch('autopr.cli.get_pr_description_suggestion')
-    @patch('builtins.input')
-    @patch('autopr.cli.create_pr_gh')
-    @patch('builtins.print')
-    def test_handle_pr_create_command_success_user_confirms_pr_creation(self, mock_print, mock_create_pr_gh, mock_input, mock_get_pr_description, mock_get_commits, mock_get_details, mock_get_issue_num):
-        mock_get_issue_num.return_value = "123"
-        mock_get_details.return_value = {"title": "Test Issue", "body": "Issue body", "number": 123, "labels": []}
-        mock_get_commits.return_value = ["feat: new feature", "fix: a bug"]
-        mock_get_pr_description.return_value = ("AI PR Title", "AI PR Body")
-        mock_input.return_value = 'y'
-        mock_create_pr_gh.return_value = (True, "PR created successfully: https://github.com/org/repo/pull/1")
-
-        handle_pr_create_command(base_branch="main", repo_path=".")
-
-        mock_get_issue_num.assert_called_once_with('.')
-        mock_get_details.assert_called_once_with("123")
-        mock_get_commits.assert_called_once_with("main")
-        mock_get_pr_description.assert_called_once_with(mock_get_details.return_value, mock_get_commits.return_value)
-        mock_input.assert_called_once_with("Do you want to create this PR? (y/n): ")
-        mock_create_pr_gh.assert_called_once_with("AI PR Title", "AI PR Body", "main")
-        
-        mock_print.assert_any_call("\n--- Suggested PR Title ---")
-        mock_print.assert_any_call("AI PR Title")
-        mock_print.assert_any_call("\n--- Suggested PR Body ---")
-        mock_print.assert_any_call("AI PR Body")
         mock_print.assert_any_call("Attempting to create PR...")
         mock_print.assert_any_call("PR created successfully!")
-        mock_print.assert_any_call("PR created successfully: https://github.com/org/repo/pull/1")
+        mock_print.assert_any_call("PR created: URL")
 
-    @patch('autopr.cli.get_current_issue_number')
-    @patch('autopr.cli.get_issue_details')
-    @patch('autopr.cli.get_commit_messages_for_branch')
     @patch('autopr.cli.get_pr_description_suggestion')
+    @patch('autopr.cli.get_commit_messages_for_branch')
     @patch('builtins.input')
     @patch('autopr.cli.create_pr_gh')
     @patch('builtins.print')
-    def test_handle_pr_create_command_success_user_declines_pr_creation(self, mock_print, mock_create_pr_gh, mock_input, mock_get_pr_description, mock_get_commits, mock_get_details, mock_get_issue_num):
-        mock_get_issue_num.return_value = "123"
-        mock_get_details.return_value = {"title": "Test Issue", "body": "Issue body", "number": 123, "labels": []}
-        mock_get_commits.return_value = ["feat: new feature", "fix: a bug"]
-        mock_get_pr_description.return_value = ("AI PR Title", "AI PR Body")
+    def test_handle_pr_create_success_user_declines(self, mock_print, mock_create_pr_gh, mock_input, mock_get_commits, mock_get_pr_desc):
+        repo_path = "/fake/path"
+        base_branch = "develop"
+        commit_list = ["feat: did a thing"]
+        ai_title, ai_body = "AI PR Title", "AI PR Body"
+
+        mock_get_commits.return_value = commit_list
+        mock_get_pr_desc.return_value = (ai_title, ai_body)
         mock_input.return_value = 'n'
 
-        handle_pr_create_command(base_branch="main", repo_path=".")
+        handle_pr_create_command(base_branch=base_branch, repo_path=repo_path)
 
+        mock_get_commits.assert_called_once_with(base_branch)
+        mock_get_pr_desc.assert_called_once_with(commit_list)
         mock_input.assert_called_once_with("Do you want to create this PR? (y/n): ")
         mock_create_pr_gh.assert_not_called()
         mock_print.assert_any_call("PR creation aborted by user.")
 
-    @patch('autopr.cli.get_current_issue_number')
-    @patch('autopr.cli.get_issue_details')
+    @patch('autopr.cli.get_commit_messages_for_branch', return_value=None)
+    @patch('builtins.print')
+    def test_handle_pr_create_no_commits_error(self, mock_print, mock_get_commits):
+        handle_pr_create_command(base_branch="main", repo_path="/path")
+        mock_print.assert_any_call("Error: Could not retrieve commit messages for the current branch against base 'main'.")
+        mock_get_commits.assert_called_once_with("main")
+
+    @patch('autopr.cli.get_commit_messages_for_branch', return_value=[])
+    @patch('builtins.print')
+    def test_handle_pr_create_no_commits_empty(self, mock_print, mock_get_commits):
+        handle_pr_create_command(base_branch="main", repo_path="/path")
+        mock_print.assert_any_call("No new commit messages found on this branch compared to base. Cannot generate PR description.")
+        mock_get_commits.assert_called_once_with("main")
+
     @patch('autopr.cli.get_commit_messages_for_branch')
     @patch('autopr.cli.get_pr_description_suggestion')
     @patch('builtins.input')
     @patch('autopr.cli.create_pr_gh')
     @patch('builtins.print')
-    def test_handle_pr_create_command_pr_creation_fails(self, mock_print, mock_create_pr_gh, mock_input, mock_get_pr_description, mock_get_commits, mock_get_details, mock_get_issue_num):
-        mock_get_issue_num.return_value = "123"
-        mock_get_details.return_value = {"title": "Test Issue", "body": "Issue body", "number": 123, "labels": []}
+    def test_handle_pr_create_command_pr_creation_fails(self, mock_print, mock_create_pr_gh, mock_input, mock_get_pr_description, mock_get_commits):
         mock_get_commits.return_value = ["feat: new feature"]
         mock_get_pr_description.return_value = ("AI PR Title", "AI PR Body")
         mock_input.return_value = 'y'
-        mock_create_pr_gh.return_value = (False, "Error from gh")
+        mock_create_pr_gh.return_value = (False, "Error from gh") 
 
         handle_pr_create_command(base_branch="main", repo_path=".")
 
+        mock_get_commits.assert_called_once_with("main")
+        mock_get_pr_description.assert_called_once_with(["feat: new feature"])
         mock_create_pr_gh.assert_called_once_with("AI PR Title", "AI PR Body", "main")
         mock_print.assert_any_call("Failed to create PR.")
         mock_print.assert_any_call("Error from gh")
 
-    @patch('autopr.cli.get_current_issue_number')
-    @patch('autopr.cli.get_issue_details')
     @patch('autopr.cli.get_commit_messages_for_branch')
     @patch('autopr.cli.get_pr_description_suggestion')
-    @patch('builtins.input')
+    @patch('builtins.input') 
     @patch('autopr.cli.create_pr_gh')
     @patch('builtins.print')
-    def test_handle_pr_create_command_empty_title_suggestion(self, mock_print, mock_create_pr_gh, mock_input, mock_get_pr_description, mock_get_commits, mock_get_details, mock_get_issue_num):
-        mock_get_issue_num.return_value = "123"
-        mock_get_details.return_value = {"title": "Test Issue", "body": "Issue body", "number": 123, "labels": []}
+    def test_handle_pr_create_command_empty_title_suggestion(self, mock_print, mock_create_pr_gh, mock_input, mock_get_pr_description, mock_get_commits):
         mock_get_commits.return_value = ["feat: new feature"]
-        mock_get_pr_description.return_value = ("", "AI PR Body")
-        mock_input.return_value = 'y'
+        mock_get_pr_description.return_value = ("", "AI PR Body") 
+        mock_input.return_value = 'y' 
 
         handle_pr_create_command(base_branch="main", repo_path=".")
         
-        mock_get_pr_description.assert_called_once()
+        mock_get_commits.assert_called_once_with("main")
+        mock_get_pr_description.assert_called_once_with(["feat: new feature"])
         mock_input.assert_called_once_with("Do you want to create this PR? (y/n): ")
         mock_print.assert_any_call("Error: Cannot create PR with an empty title suggestion.")
         mock_create_pr_gh.assert_not_called()
 
-    @patch('autopr.cli.get_current_issue_number')
-    @patch('autopr.cli.get_issue_details')
     @patch('autopr.cli.get_commit_messages_for_branch')
     @patch('autopr.cli.get_pr_description_suggestion')
     @patch('builtins.input')
     @patch('autopr.cli.create_pr_gh')
     @patch('builtins.print')
-    def test_handle_pr_create_command_empty_body_suggestion_warning(self, mock_print, mock_create_pr_gh, mock_input, mock_get_pr_description, mock_get_commits, mock_get_details, mock_get_issue_num):
-        mock_get_issue_num.return_value = "123"
-        mock_get_details.return_value = {"title": "Test Issue", "body": "Issue body", "number": 123, "labels": []}
+    def test_handle_pr_create_command_empty_body_suggestion_warning(self, mock_print, mock_create_pr_gh, mock_input, mock_get_pr_description, mock_get_commits):
         mock_get_commits.return_value = ["feat: new feature"]
-        mock_get_pr_description.return_value = ("AI PR Title", "")
+        mock_get_pr_description.return_value = ("AI PR Title", "") 
         mock_input.return_value = 'y' 
         mock_create_pr_gh.return_value = (True, "PR created with empty body")
 
         handle_pr_create_command(base_branch="main", repo_path=".")
         
-        mock_get_pr_description.assert_called_once()
+        mock_get_commits.assert_called_once_with("main")
+        mock_get_pr_description.assert_called_once_with(["feat: new feature"])
         mock_input.assert_called_once_with("Do you want to create this PR? (y/n): ")
         mock_print.assert_any_call("Warning: PR body suggestion is empty. Proceeding with an empty body.")
         mock_create_pr_gh.assert_called_once_with("AI PR Title", "", "main")
         mock_print.assert_any_call("PR created successfully!")
         mock_print.assert_any_call("PR created with empty body")
-
 
 if __name__ == '__main__':
     unittest.main()
