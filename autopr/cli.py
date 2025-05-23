@@ -109,10 +109,10 @@ def main():
     parser = argparse.ArgumentParser(description="AutoPR CLI")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # Subparser for the 'create' command
-    create_parser = subparsers.add_parser("create", help="Suggest title and body for a new PR based on current issue and commits.")
-    create_parser.add_argument("--title", required=False, help="(Optional) User-specified title hint (currently ignored by AI). AI will suggest a title.")
-    create_parser.add_argument("--base", required=True, help="The target base branch for the PR (e.g., main, develop).")
+    # Subparser for the 'pr' command (renamed from 'create')
+    pr_parser = subparsers.add_parser("pr", help="Suggest title and body for a new PR and create it after confirmation.") # Renamed and updated help
+    pr_parser.add_argument("--title", required=False, help="(Optional) User-specified title hint (currently ignored by AI). AI will suggest a title.")
+    pr_parser.add_argument("--base", required=False, default="main", help="The target base branch for the PR. Defaults to 'main'.") # Now optional, defaults to main
 
     # Subparser for the 'ls' command
     list_parser = subparsers.add_parser(
@@ -147,11 +147,11 @@ def main():
         # Potentially derive repo_full_path if get_repo_from_git_config can provide it or we add a helper
     except Exception as e:
         print(f"Error detecting repository: {e}")
-        if args.command in ["ls", "create"]: # create now also needs repo context for issue/commits
+        if args.command in ["ls", "pr"]: # Renamed from create to pr
              return
         pass 
 
-    if args.command == "create":
+    if args.command == "pr": # Renamed from create to pr
         # The old create_pr(args.title) is removed in favor of the new handler
         handle_pr_create_command(base_branch=args.base, repo_path=repo_full_path)
     elif args.command == "workon":

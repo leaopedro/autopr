@@ -145,19 +145,22 @@ class TestMainCLI(unittest.TestCase):
 
     @patch('autopr.cli.handle_pr_create_command')
     @patch('autopr.cli.get_repo_from_git_config')
-    def test_create_command_calls_handle_pr_create(self, mock_get_repo, mock_handle_pr_create):
-        base_branch = "main"
+    def test_pr_command_uses_default_base(self, mock_get_repo, mock_handle_pr_create):
         mock_get_repo.return_value = "owner/repo"
-        with patch.object(sys, 'argv', ['autopr_cli', 'create', '--base', base_branch]):
+        with patch.object(sys, 'argv', ['autopr_cli', 'pr']):
             autopr_main()
         mock_get_repo.assert_called_once()
-        mock_handle_pr_create.assert_called_once_with(base_branch=base_branch, repo_path=".")
+        mock_handle_pr_create.assert_called_once_with(base_branch="main", repo_path=".")
 
-    @patch('builtins.print')
-    def test_create_command_missing_base_arg(self, mock_print):
-        with patch.object(sys, 'argv', ['autopr_cli', 'create']):
-            with self.assertRaises(SystemExit): 
-                autopr_main()
+    @patch('autopr.cli.handle_pr_create_command')
+    @patch('autopr.cli.get_repo_from_git_config')
+    def test_pr_command_respects_explicit_base(self, mock_get_repo, mock_handle_pr_create):
+        explicit_base = "develop"
+        mock_get_repo.return_value = "owner/repo"
+        with patch.object(sys, 'argv', ['autopr_cli', 'pr', '--base', explicit_base]):
+            autopr_main()
+        mock_get_repo.assert_called_once()
+        mock_handle_pr_create.assert_called_once_with(base_branch=explicit_base, repo_path=".")
 
 class TestHandlePrCreateCommand(unittest.TestCase):
     @patch('autopr.cli.get_pr_description_suggestion')
