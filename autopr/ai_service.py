@@ -299,5 +299,3 @@ Suggestions:"""
         print(f"Error generating PR review suggestions: {e}")
         return [{"path": "error", "line": 0, "suggestion": f"[Unexpected error in review generation: {e}]"}]
 
-
-# Placeholder for future PR feedback/review functionality
