@@ -191,6 +191,54 @@ class TestMainCLI(unittest.TestCase):
         mock_print.assert_any_call("Handling commit command...")
         mock_print.assert_any_call("No changes staged for commit.")
 
+    @patch("autopr.cli.get_staged_diff")
+    @patch("autopr.cli.get_commit_message_suggestion")
+    @patch("builtins.print")
+    def test_handle_commit_command_diff_exceeds_hard_limit(
+        self, mock_print, mock_get_ai_suggestion, mock_get_staged_diff
+    ):
+        large_diff = "a" * 450001
+        mock_get_staged_diff.return_value = large_diff
+        handle_commit_command()
+        mock_get_staged_diff.assert_called_once()
+        mock_print.assert_any_call(
+            f"Error: Diff is too large ({len(large_diff)} characters). Maximum allowed is 450,000 characters."
+        )
+        mock_print.assert_any_call(
+            "Please break down your changes into smaller commits."
+        )
+        mock_get_ai_suggestion.assert_not_called() # AI should not be called
+
+    @patch("autopr.cli.get_staged_diff")
+    @patch("autopr.cli.get_commit_message_suggestion")
+    @patch("builtins.input", return_value="y") # Assume user confirms if AI is called
+    @patch("autopr.cli.git_commit") # Mock commit as it won't be reached if AI not called
+    @patch("builtins.print")
+    def test_handle_commit_command_diff_exceeds_warning_limit(
+        self, mock_print, mock_git_commit, mock_input, mock_get_ai_suggestion, mock_get_staged_diff
+    ):
+        warn_diff = "b" * 400001
+        mock_get_staged_diff.return_value = warn_diff
+        # Mock AI suggestion to ensure the flow continues past the warning
+        ai_suggestion = "AI: feat: processed large diff"
+        mock_get_ai_suggestion.return_value = ai_suggestion
+        mock_git_commit.return_value = (True, "Committed large diff")
+
+        handle_commit_command()
+
+        mock_get_staged_diff.assert_called_once()
+        mock_print.assert_any_call(
+            f"Warning: Diff is very large ({len(warn_diff)} characters). AI suggestion quality may be affected."
+        )
+        mock_print.assert_any_call(
+            "Consider breaking down your changes into smaller commits for better results."
+        )
+        mock_get_ai_suggestion.assert_called_once_with(warn_diff) # AI should be called
+        mock_input.assert_called_once_with(
+            "\nDo you want to commit with this message? (y/n): "
+        )
+        mock_git_commit.assert_called_once_with(ai_suggestion)
+
     @patch("autopr.cli.handle_pr_create_command")
     @patch("autopr.cli.get_repo_from_git_config")
     def test_pr_command_uses_default_base(self, mock_get_repo, mock_handle_pr_create):

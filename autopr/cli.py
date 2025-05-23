@@ -24,6 +24,15 @@ def handle_commit_command():  # Handles the 'commit' command logic, including AI
     print("Handling commit command...")
     staged_diff = get_staged_diff()
     if staged_diff:
+        diff_len = len(staged_diff)
+        if diff_len > 450000:
+            print(f"Error: Diff is too large ({diff_len} characters). Maximum allowed is 450,000 characters.")
+            print("Please break down your changes into smaller commits.")
+            return
+        elif diff_len > 400000:
+            print(f"Warning: Diff is very large ({diff_len} characters). AI suggestion quality may be affected.")
+            print("Consider breaking down your changes into smaller commits for better results.")
+
         print("Staged Diffs:\n")
         print(staged_diff)
         print("\nAttempting to get AI suggestion for commit message...")
