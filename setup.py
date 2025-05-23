@@ -5,16 +5,18 @@ import re
 # Path to the directory containing setup.py
 HERE = os.path.abspath(os.path.dirname(__file__))
 
+
 def get_version(rel_path):
     """Reads version from a file relative to HERE."""
     abs_path = os.path.join(HERE, rel_path)
-    with open(abs_path, 'r') as f:
-        for line in f: # Read line by line to avoid large file reads
-            if line.startswith('__version__'):
+    with open(abs_path, "r") as f:
+        for line in f:  # Read line by line to avoid large file reads
+            if line.startswith("__version__"):
                 # Example: __version__ = "0.1.0"
                 delim = '"' if '"' in line else "'"
                 return line.split(delim)[1]
     raise RuntimeError("Unable to find version string.")
+
 
 setup(
     name="autopr_cli",
