@@ -39,7 +39,7 @@ def get_commit_message_suggestion(diff: str) -> str:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful assistant that generates commit messages.",
+                    "content": "You are a helpful assistant that generates commit messages. Be brief, technical and to the point. Summarize the changes in a single line.",
                 },
                 {"role": "user", "content": prompt_message},
             ],
@@ -126,7 +126,7 @@ def get_pr_description_suggestion(commit_messages: list[str]) -> tuple[str, str]
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an expert at writing Pull Request descriptions.",
+                    "content": "You are an expert at writing Pull Request descriptions. Be brief, technical and to the point.",
                 },
                 {"role": "user", "content": prompt},
             ],
