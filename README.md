@@ -1,17 +1,17 @@
 # AutoPR
 
-A CLI tool designed to streamline your GitHub workflow by automating Pull Request (PR) creation and issue management. Future versions will incorporate AI to assist in generating PR descriptions.
+A CLI tool designed to streamline your GitHub workflow by automating Pull Request (PR) creation and issue management. Incorporates AI to assist in generating PR descriptions and Commit messages.
 
 ## Features (Current)
 
-*   List open GitHub issues for the current repository.
-*   List all (open and closed) GitHub issues using the `-a` flag.
-*   Create a new PR with a specified title.
-*   Automatically detects the GitHub repository from your local .git configuration.
+*   Lists open GitHub issues for the current repository.
+*   Creates working feature branch based on issue number and title.
+*   Creates a new Commit with an AI generated message based on staged diff.
+*   Creates a new PR with an AI generated title based on previous commit messages.
 
 ## Installation & Setup
 
-### For Users (when published on PyPI):
+### For Users (installed via PyPI):
 
 You can install AutoPR using pip:
 
@@ -48,24 +48,20 @@ Make sure you are in the root directory of your Git repository.
 *   **List all issues (open and closed):**
     ```sh
     autopr ls -a
-    # For developers: python -m autopr.cli ls -a
     ```
 *   **Start working on an issue:**
     ```sh
     autopr workon <issue_number>
-    # For developers: python -m autopr.cli workon <issue_number>
     ```
     (See full guide below)
 *   **Generate AI-assisted commit message and commit:**
     ```sh
     autopr commit
-    # For developers: python -m autopr.cli commit
     ```
     Requires `OPENAI_API_KEY` environment variable. (See full guide below)
 *   **Create a new PR:**
     ```sh
-    autopr create --title "Your Amazing PR Title"
-    # For developers: python -m autopr.cli create --title "Your Amazing PR Title"
+    autopr pr
     ```
 
 ### Starting Work on an Issue (`autopr workon`)
