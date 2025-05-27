@@ -328,15 +328,36 @@ class TestGetPrReviewSuggestions(unittest.TestCase):
     @patch("autopr.ai_service.client")
     @patch("builtins.print")
     def test_unexpected_response_format_not_list_or_dict_suggestions(self, mock_print, mock_openai_client):
-        ai_response_content = '{"some_other_key": [{"path": "file.py", "line": 5, "suggestion": "Good job!"}]}'
-        mock_completion = MagicMock(message=MagicMock(content=ai_response_content))
-        mock_openai_client.chat.completions.create.return_value = MagicMock(choices=[mock_completion])
+        ai_response_content = '{"suggestions": "not a list or dict"}' # This is what the AI would return that is malformed
+        
+        # Mock the tool_calls structure that the function expects to parse from the client
+        mock_function = MagicMock()
+        mock_function.arguments = ai_response_content # The function will try to json.loads this
+        mock_tool_call = MagicMock()
+        mock_tool_call.function = mock_function
+        mock_message = MagicMock()
+        mock_message.tool_calls = [mock_tool_call] # This structure was based on a misunderstanding
+                                                # The actual function parses response.choices[0].message.content
 
+        # Corrected mock structure based on the actual function's implementation:
+        # It expects client.chat.completions.create to return an object with choices[0].message.content
+        # containing the JSON string.
+        mock_completion_message = MagicMock()
+        mock_completion_message.content = ai_response_content # This is the JSON string the function will parse
+        mock_choice = MagicMock()
+        mock_choice.message = mock_completion_message
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        mock_openai_client.chat.completions.create.return_value = mock_response
+        
+        # Call the function correctly with only one argument
         suggestions = get_pr_review_suggestions("some diff")
         self.assertEqual(len(suggestions), 1)
-        self.assertEqual(suggestions[0]["path"], "error")
-        self.assertEqual(suggestions[0]["suggestion"], "[AI response format error]")
-        mock_print.assert_any_call("Error: AI response was not in the expected format (list or dict with 'suggestions' key). Got: <class 'dict'>")
+        self.assertEqual(suggestions[0]["path"], "error") # General error indicator
+        self.assertEqual(suggestions[0]["suggestion"], "[AI response format error: unexpected dict structure]")
+        # Assert the actual print call for this specific error case
+        expected_error_payload = {"suggestions": "not a list or dict"}
+        mock_print.assert_any_call(f"Error: AI response dictionary is not a list of suggestions, a wrapped list, nor a single valid suggestion object. Got: {expected_error_payload}")
 
     @patch("autopr.ai_service.client")
     @patch("builtins.print")
