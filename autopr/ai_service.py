@@ -116,7 +116,7 @@ def get_pr_description_suggestion(commit_messages: list[str]) -> tuple[str, str]
         f"Please analyse them and generate a Pull Request title and an effective body.\n"
         f"The title should be on the very first line, followed by a single newline character, and then the body.\n"
         f"The body should summarize the changes and their purpose. Do not include the commit messages themselves in the body unless they add specific context not otherwise covered by a summary."
-        f"it's very important to be brief, technical, concise and direct to the point when explaining how the changes affect the codebase."
+        f"it's very important to be brief, technical, concise and use a simple and easy to understand language."
         f"Do not use markdown for the title. The body might use markdown for formatting if needed."
     )
 
