@@ -1,247 +1,209 @@
-# AutoPR
+# AutoPR: Your AI-Powered GitHub Assistant
 
-A CLI tool designed to streamline your GitHub workflow by automating Pull Request (PR) creation and issue management. Incorporates AI to assist in generating PR descriptions and Commit messages.
+AutoPR is a command-line tool that uses AI to help you with common GitHub tasks like managing issues, writing commit messages, creating pull requests, and even reviewing code. It's like having a smart assistant right in your terminal!
 
-## Features (Current)
+## What Can AutoPR Do For You?
 
-*   Lists open GitHub issues for the current repository.
-*   Creates working feature branch based on issue number and title.
-*   Creates a new Commit with an AI generated message based on staged diff.
-*   Creates a new PR with an AI generated title based on previous commit messages.
+Here's a look at how AutoPR can make your GitHub workflow smoother and faster.
 
-## Installation & Setup
+*(Make sure you're in the main directory of your Git project when running these commands!)*
 
-### For Users (installed via PyPI):
+### 1. See What Needs Doing: `autopr ls`
 
-You can install AutoPR using pip:
+Want to quickly see what issues are open in your project?
 
+*   **See all open issues:**
+    ```sh
+    autopr ls
+    ```
+*   **See absolutely *all* issues (open and closed):**
+    ```sh
+    autopr ls -a
+    # or
+    autopr ls --all
+    ```
+    If there's nothing matching your filters, AutoPR will let you know.
+
+### 2. Grab an Issue and Get to Work: `autopr workon <issue_number>`
+
+Ready to tackle an issue? `autopr workon` gets you set up in a flash.
+
+**Command:**
+```sh
+autopr workon <issue_number> 
+# Example: autopr workon 101
+```
+Replace `<issue_number>` with the actual number of the GitHub issue.
+
+**What it does for you:**
+
+1.  **Finds the Issue:** Looks up the issue on GitHub to get its title.
+2.  **Creates a Smart Branch Name:** Makes a new branch like `feature/101-fix-that-tricky-bug` from the issue number and title. (It cleans up the title to make it a good branch name – all lowercase, hyphens for spaces, etc.)
+3.  **Switches to Your New Branch:** Runs `git checkout -b ...` so you're ready to code.
+4.  **Remembers What You're Working On:** Saves the issue number in `.git/.autopr_current_issue`. This helps other AutoPR commands know the context of your work.
+
+**Example:**
+If issue #42 is "Fix login button display error":
+```sh
+autopr workon 42
+```
+AutoPR will create and switch to a branch like `feature/42-fix-login-button-display-error` and remember that you're working on issue 42.
+
+### 3. Commit Your Awesome Changes (with AI Help!): `autopr commit`
+
+You've staged your changes (`git add .`), and now it's time to commit. Let AutoPR help you write a great commit message!
+
+**Prerequisites:**
+*   You have changes staged for commit.
+*   You need an `OPENAI_API_KEY` set in your environment.
+    ```sh
+    export OPENAI_API_KEY='your_api_key_here' 
+    ```
+    (Tip: Add this to your `.zshrc` or `.bashrc` so you don't have to set it every time.)
+
+**Command:**
+```sh
+autopr commit
+```
+
+**What it does for you:**
+
+1.  **Checks Your Staged Work:** Looks at what you've staged with `git diff --staged`.
+2.  **Asks AI for a Commit Message:** Sends this "diff" to an AI (currently GPT-3.5 Turbo) to suggest a commit message.
+3.  **Shows You the Suggestion:** Prints the AI's idea to your console.
+4.  **You Decide:** Asks if you want to use it (`y/n`).
+    *   **`y` (yes):** AutoPR runs `git commit -m "AI's clever message"` for you.
+    *   **`n` (no):** No problem! AutoPR will tell you to commit manually with `git commit`.
+
+**Example:**
+After `git add my_amazing_feature.py`:
+```sh
+autopr commit
+```
+AutoPR will show you a suggested message. If you like it, hit `y`, and you're committed!
+
+### 4. Create a Pull Request (AI-Assisted Title & Body): `autopr pr`
+
+Ready to share your work? `autopr pr` helps you draft a Pull Request with an AI-generated title and description based on your commits and the original issue.
+
+**Prerequisites:**
+*   You've committed your changes to your local branch.
+*   You have that `OPENAI_API_KEY` environment variable set.
+*   It helps if you started with `autopr workon <issue_number>` so AutoPR can link the PR back to the issue.
+
+**Command:**
+```sh
+autopr pr [--base <target_branch>]
+# Example: autopr pr
+# Example: autopr pr --base develop
+```
+*   `--base <target_branch>`: Tell AutoPR where your PR should merge into. If you don't say, it defaults to `main`.
+
+**What it does for you:**
+
+1.  **Gathers Your Commits:** Looks at all the commits you've made on your current branch since you branched off from `main` (or your specified `--base` branch).
+2.  **Remembers the Issue (if you used `workon`):** If you used `autopr workon`, it will try to fetch the original issue's title and description from GitHub.
+3.  **Asks AI for a PR Title & Body:** Sends your commit messages (and issue details, if found) to an AI (GPT-3.5 Turbo) to draft a title and body for your PR.
+4.  **Shows You the Draft:** Prints the AI's suggested title and body.
+5.  **You Decide:** Asks if you want to create the PR on GitHub with this draft (`y/n`).
+    *   **`y` (yes):** AutoPR uses `gh pr create ...` to open the PR on GitHub, linking it to the issue if possible.
+    *   **`n` (no):** No worries! AutoPR will suggest you create the PR manually.
+
+**Example:**
+You've made some commits on your `feature/42-new-login-flow` branch.
+```sh
+autopr pr 
+```
+AutoPR will gather your work, ask the AI for a good PR title and body, show them to you, and then create the PR if you say yes!
+
+### 5. Get an AI Code Review: `autopr review <PR_NUMBER>`
+
+Want a second pair of (AI) eyes on a Pull Request? `autopr review` uses AI to analyze the changes and post suggestions directly as comments on GitHub.
+
+**Prerequisites:**
+*   You have the `gh` CLI installed and logged in (`gh auth login`).
+*   Yep, you need that `OPENAI_API_KEY` again.
+
+**Command:**
+```sh
+autopr review <PR_NUMBER>
+# Example: autopr review 7
+```
+Replace `<PR_NUMBER>` with the number of the PR you want to review.
+
+**What it does for you:**
+
+1.  **Fetches the PR's Changes:** Uses `gh pr diff <PR_NUMBER>` to get all the code changes.
+2.  **AI Analyzes the Code:** Sends the diff to a powerful AI (GPT-4 Turbo Preview) to look for potential improvements or issues.
+3.  **Posts Suggestions on GitHub:** If the AI has suggestions, AutoPR posts them as comments directly on the relevant lines of code in the PR on GitHub.
+4.  **Tells You What Happened:** Gives you a summary of how many comments it posted.
+
+**Example:**
+To get AI feedback on Pull Request #7:
+```sh
+autopr review 7
+```
+AutoPR will fetch the PR, let the AI review it, and post comments on GitHub.
+
+## Getting Started: Installation
+
+Ready to try AutoPR?
+
+### For Most Users (Install from PyPI)
+
+The easiest way is with pip:
 ```sh
 pip install autopr_cli
 ```
+Then you can run commands like `autopr ls`.
 
-### For Developers (Local Setup):
+### For Developers (If you want to contribute or tinker)
 
-1.  Clone the repository:
+1.  **Get the Code:**
     ```sh
     git clone https://github.com/leaopedro/autopr.git
     cd autopr
     ```
-2.  Create and activate a virtual environment (recommended):
+2.  **Set up a Virtual Environment (Good Practice!):**
     ```sh
     python3 -m venv venv
-    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
     ```
-3.  Install dependencies (including development tools):
+3.  **Install Everything Needed:**
     ```sh
-    pip install -r requirements.txt
+    pip install -r requirements.txt 
     ```
+    Now you can run commands like `python -m autopr.cli ls`.
 
-## Usage
+## For Developers: Contributing to AutoPR
 
-Make sure you are in the root directory of your Git repository.
-
-*   **List open issues:**
-    ```sh
-    autopr ls
-    # For developers: python -m autopr.cli ls
-    ```
-*   **List all issues (open and closed):**
-    ```sh
-    autopr ls -a
-    ```
-*   **Start working on an issue:**
-    ```sh
-    autopr workon <issue_number>
-    ```
-    (See full guide below)
-*   **Generate AI-assisted commit message and commit:**
-    ```sh
-    autopr commit
-    ```
-    Requires `OPENAI_API_KEY` environment variable. (See full guide below)
-*   **Create a new PR (AI-assisted title/body):**
-    ```sh
-    autopr pr [--base <target_branch>]
-    # For developers: python -m autopr.cli pr [--base <target_branch>]
-    ```
-*   **Review a Pull Request:**
-    ```sh
-    autopr review <PR_NUMBER>
-    # For developers: python -m autopr.cli review <PR_NUMBER>
-    ```
-    Requires `OPENAI_API_KEY` environment variable. (See full guide below)
-
-### Starting Work on an Issue (`autopr workon`)
-
-The `workon` command helps you kickstart development on a specific GitHub issue.
-
-**Command:**
-
-```sh
-autopr workon <issue_number>
-# For developers: python -m autopr.cli workon <issue_number>
-```
-
-Replace `<issue_number>` with the actual number of the GitHub issue you want to work on.
-
-**What it does:**
-
-1.  **Fetches Issue Details:** It uses the `gh` CLI to retrieve the title of the specified issue.
-2.  **Generates a Branch Name:** Based on the issue number and its title, it creates a sanitized, descriptive branch name in the format `feature/<issue_number>-<sanitized-title>`.
-    *   *Sanitization includes:* lowercasing, replacing spaces and special characters with hyphens, and limiting length.
-3.  **Creates and Switches Branch:** It executes `git checkout -b <generated_branch_name>` to create the new local branch and immediately switch to it.
-4.  **Stores Context:** The issue number is saved to a file named `.autopr_current_issue` inside your local `.git` directory. This allows future `autopr` commands (like `autopr commit` and `autopr pr create` in upcoming features) to know which issue you're currently working on.
-
-**Example:**
-
-If you want to start working on issue #42 which has the title "Fix login button display error":
-
-```sh
-autopr workon 42
-# For developers: python -m autopr.cli workon 42
-```
-
-This might:
-*   Fetch details for issue #42.
-*   Generate a branch name like `feature/42-fix-login-button-display-error`.
-*   Create and switch to this new branch.
-*   Save `42` into `.git/.autopr_current_issue`.
-
-You are then ready to start coding on the new branch with the issue context set up for future `autopr` commands.
-
-### Generating an AI-assisted Commit Message (`autopr commit`)
-
-The `commit` command helps you generate a commit message using AI based on your staged changes, and then optionally commit those changes.
-
-**Prerequisites:**
-
-*   You must have changes staged for commit (`git add ...`).
-*   You need to set the `OPENAI_API_KEY` environment variable with your valid OpenAI API key.
-    ```sh
-    export OPENAI_API_KEY='your_api_key_here' 
-    ```
-    (Add this to your shell configuration file like `.zshrc` or `.bashrc` for persistence).
-
-**Command:**
-
-```sh
-autopr commit
-# For developers: python -m autopr.cli commit
-```
-
-**What it does:**
-
-1.  **Checks for Staged Changes:** It first runs `git diff --staged` to get your staged modifications. If there are no staged changes, it will inform you.
-2.  **Sends Diff to AI:** The staged diff is sent to the OpenAI API (currently using `gpt-3.5-turbo`).
-3.  **Displays AI Suggestion:** The AI-generated commit message suggestion is printed to your console.
-4.  **User Confirmation:** You will be asked if you want to commit with the suggested message (`y/n`).
-5.  **Commits Changes (if confirmed):**
-    *   If you enter `y` (yes), `autopr` will execute `git commit -m "suggested_message"` to commit your staged changes with the AI's suggestion.
-    *   If you enter `n` (no) or any other input, the commit will be aborted, and you will be advised to commit manually using `git`.
-6.  **Handles Errors:** If there's an issue getting the AI suggestion (e.g., API key problem, network error) or if the `git commit` command fails, appropriate error messages will be displayed.
-
-**Example:**
-
-After staging some changes to `my_feature.py`:
-
-```sh
-git add my_feature.py
-autopr commit
-# For developers: python -m autopr.cli commit
-```
-
-If the AI service returns an error, or if you choose not to use the suggestion, you will be prompted to commit manually.
-
-### Reviewing a Pull Request (`autopr review`)
-
-The `review` command leverages AI to analyze the changes in a specified Pull Request and posts suggestions directly as comments on GitHub.
-
-**Prerequisites:**
-
-*   You must have the `gh` CLI installed and authenticated (`gh auth login`).
-*   You need to set the `OPENAI_API_KEY` environment variable with your valid OpenAI API key.
-    ```sh
-    export OPENAI_API_KEY='your_api_key_here'
-    ```
-
-**Command:**
-
-```sh
-autopr review <PR_NUMBER>
-# For developers: python -m autopr.cli review <PR_NUMBER>
-```
-Replace `<PR_NUMBER>` with the actual number of the Pull Request you want to review.
-
-**What it does:**
-
-1.  **Fetches PR Changes:** It uses `gh pr diff <PR_NUMBER>` to get the diff of the specified Pull Request.
-2.  **Sends Diff to AI:** The PR diff is sent to the OpenAI API (currently using `gpt-4-turbo-preview`) to generate review suggestions.
-3.  **Parses Suggestions:** The AI is prompted to return suggestions in a specific JSON format, including the file path, line number, and the suggestion text.
-4.  **Posts Comments to GitHub:** For each valid suggestion, `autopr` uses `gh api` to post a review comment directly to the specified line in the relevant file of the Pull Request. It dynamically fetches repository and PR details (like the head commit SHA) to ensure comments are correctly attributed.
-5.  **Provides Summary:** Outputs a summary of how many comments were successfully posted and if any failures occurred.
-6.  **Handles Errors:** If there are issues (e.g., PR not found, AI errors, problems posting comments), appropriate messages are displayed.
-
-**Example:**
-
-To review Pull Request #7:
-
-```sh
-autopr review 7
-# For developers: python -m autopr.cli review 7
-```
-
-`autopr` will then fetch the changes for PR #7, get AI suggestions, and attempt to post them as review comments on GitHub.
-
-## Development
+If you're working on AutoPR itself:
 
 ### Running Tests
 
-To run the automated tests, use Make:
-
+Make sure everything still works:
 ```sh
 make test
 ```
 
-### Formatting Code
+### Keeping Code Tidy (Formatting)
 
-To format the code using Black:
-
+We use Black to format our Python code:
 ```sh
 make format
 ```
 
-### Publishing a New Version (for Maintainers)
+### Publishing a New Version (For Maintainers)
 
-This project uses `Makefile` targets to streamline the release process. Ensure you have `twine` configured with your PyPI credentials (API tokens are recommended) and have installed development dependencies via `pip install -r requirements.txt`.
+We have a `Makefile` to help with releases. You'll need `twine` and your PyPI credentials.
 
-1.  **Update Version:** Increment the `__version__` string in `autopr/__init__.py`.
+1.  **Update Version:** Change `__version__` in `autopr/__init__.py`.
+2.  **Build:** `make build` (creates distributable files in `dist/`)
+3.  **Test on TestPyPI (Important!):** `make publish-test`
+4.  **Publish for Real on PyPI:** `make publish`
+5.  **Full Release (Publish & Tag):** `make release` (does `publish` then tags the version in Git).
+    *   **Crucial:** After `make release`, push the tag: `git push origin vX.Y.Z` (or `git push --tags`).
 
-2.  **Build the Package:**
-    ```sh
-    make build
-    ```
-    This cleans old builds and creates new source distribution and wheel files in the `dist/` directory.
+---
 
-3.  **Test Publishing (Highly Recommended):** Publish to TestPyPI to ensure everything works correctly before a real release.
-    ```sh
-    make publish-test
-    ```
-    You will be prompted for confirmation. Check the package on [test.pypi.org](https://test.pypi.org).
-
-4.  **Publish to PyPI (Real):**
-    ```sh
-    make publish
-    ```
-    This will upload the package to the official PyPI. You will be prompted for confirmation.
-
-5.  **Full Release (Publish to PyPI & Tag):** For a complete release including Git tagging:
-    ```sh
-    make release
-    ```
-    This performs `make publish` and then creates a Git tag for the new version (e.g., `v0.2.5`).
-    After running this, you **must** push the tag to the remote repository:
-    ```sh
-    git push origin vX.Y.Z  # Replace X.Y.Z with the version number
-    # OR push all tags if you have multiple new tags
-    git push --tags
-    ```
+*Note: For developer commands like `python -m autopr.cli ...`, you can create an alias in your shell (e.g., in `.zshrc` or `.bashrc`) to make them shorter, like `alias dev-autopr="python -m autopr.cli"`.*
