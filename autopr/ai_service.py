@@ -39,7 +39,7 @@ def get_commit_message_suggestion(diff: str) -> str:
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a helpful assistant that generates commit messages.",
+                    "content": "You are a helpful assistant that generates commit messages. Be brief, technical and to the point. Summarize the changes in a single line.",
                 },
                 {"role": "user", "content": prompt_message},
             ],
@@ -113,11 +113,11 @@ def get_pr_description_suggestion(commit_messages: list[str]) -> tuple[str, str]
     prompt = (
         f"Given the following commit messages from a feature branch:\n"
         f"{commits_str}\n\n"
-        f"Please analyse them and generate a concise and informative Pull Request title and a concise and effective body.\n"
+        f"Please analyse them and generate a Pull Request title and an effective body.\n"
         f"The title should be on the very first line, followed by a single newline character, and then the body.\n"
         f"The body should summarize the changes and their purpose. Do not include the commit messages themselves in the body unless they add specific context not otherwise covered by a summary."
-        f"it's very important to be concise and direct to the point, summarizing how the changes affect the codebase."
-        f"Do not use markdown for the title. The body might use markdown for formatting if appropriate (e.g. bullet points)."
+        f"it's very important to be brief, technical, concise and use a simple and easy to understand language."
+        f"Do not use markdown for the title. The body might use markdown for formatting if needed."
     )
 
     try:
@@ -126,7 +126,7 @@ def get_pr_description_suggestion(commit_messages: list[str]) -> tuple[str, str]
             messages=[
                 {
                     "role": "system",
-                    "content": "You are an expert at writing Pull Request descriptions.",
+                    "content": "You are an expert at writing Pull Request descriptions. Be brief, technical and to the point.",
                 },
                 {"role": "user", "content": prompt},
             ],

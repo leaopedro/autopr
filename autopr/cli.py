@@ -113,43 +113,65 @@ def handle_review_command(pr_number: int):
         return
 
     print(f"\nGenerated {len(actual_suggestions)} actionable suggestion(s) for review.")
-    print("\nPosting review comments...")
-
-    success_count = 0
-    failure_count = 0
-    for suggestion in actual_suggestions:
+    
+    # Display suggestions to the user for confirmation
+    print("\n--- Suggested Review Comments ---")
+    for i, suggestion in enumerate(actual_suggestions):
         try:
-            path = suggestion["path"]
-            line = suggestion["line"]
-            body = suggestion["suggestion"]
+            path = suggestion.get("path", "N/A")
+            line = suggestion.get("line", "N/A")
+            body = suggestion.get("suggestion", "N/A")
+            print(f"\nSuggestion {i+1}:")
+            print(f"  File: {path}")
+            print(f"  Line: {line}")
+            print(f"  Comment: {body}")
+        except Exception as e:
+            print(f"Error displaying suggestion: {suggestion}, Error: {e}")
+            # Potentially skip this suggestion or handle more gracefully
 
-            if not path or line <= 0 or not body: # Basic validation
-                print(f"Skipping invalid suggestion (empty path/line/body): {suggestion}")
+    confirmation = input("\nDo you want to post these review comments? (y/n): ").lower()
+    if confirmation == "y":
+        print("\nPosting review comments...")
+        success_count = 0
+        failure_count = 0
+        for suggestion in actual_suggestions:
+            try:
+                path = suggestion["path"]
+                line = suggestion["line"]
+                body = suggestion["suggestion"]
+
+                if not path or line <= 0 or not body: # Basic validation
+                    print(f"Skipping invalid suggestion (empty path/line/body): {suggestion}")
+                    failure_count +=1
+                    continue
+
+                if post_pr_review_comment(pr_number, body, path, line):
+                    success_count += 1
+                    # print(f"Successfully posted comment on {path}:{line}") # Already printed by post_pr_review_comment
+                else:
+                    print(f"Failed to post comment on {path}:{line} (see details above).")
+                    failure_count +=1
+            except KeyError as e:
+                print(f"Error processing suggestion format: missing key {e} in {suggestion}")
+                failure_count +=1
+                continue
+            except Exception as e:
+                print(f"Unexpected error while processing and posting a suggestion: {e}")
                 failure_count +=1
                 continue
 
-            if post_pr_review_comment(pr_number, body, path, line):
-                success_count += 1
-                # print(f"Successfully posted comment on {path}:{line}") # Already printed by post_pr_review_comment
-            else:
-                print(f"Failed to post comment on {path}:{line} (see details above).")
-                failure_count +=1
-        except KeyError as e:
-            print(f"Error processing suggestion format: missing key {e} in {suggestion}")
-            failure_count +=1
-            continue
-        except Exception as e:
-            print(f"Unexpected error while processing and posting a suggestion: {e}")
-            failure_count +=1
-            continue
-
-    print("\nReview complete.")
-    if success_count > 0:
-        print(f"Successfully posted {success_count} comment(s).")
-    if failure_count > 0:
-        print(f"Failed to post {failure_count} comment(s).")
-    if not actual_suggestions: # Should be caught earlier, but as a safeguard
-        print("No suggestions were attempted.")
+        print("\nReview complete.")
+        if success_count > 0:
+            print(f"Successfully posted {success_count} comment(s).")
+        if failure_count > 0:
+            print(f"Failed to post {failure_count} comment(s).")
+        # If no suggestions were attempted (e.g. all invalid), this might be useful.
+        # However, actual_suggestions is guaranteed to be non-empty here.
+        # And if all fail due to invalid format, failure_count will reflect that.
+        # if success_count == 0 and failure_count == len(actual_suggestions) and len(actual_suggestions) > 0:
+        # print("All suggestions failed to post.")
+    else:
+        print("Review comments posting aborted by user.")
 
 
 def handle_pr_create_command(base_branch: str, repo_path: str = "."):
